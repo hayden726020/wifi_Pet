@@ -1,0 +1,24 @@
+# Private hardware dumps and local diagnostic artifacts — never commit.
+work/
+
+# Compiled ARM test binaries (rebuild from sources)
+snake/snake
+snake/tracer
+snake/sysloop
+*.o
+
+# Raw framebuffer/firmware dumps and derived images
+*.bin
+*.raw
+*.lzma
+*.img
+*.png
+*.log
+*.elf
+*.map
+*.dis
+*.tgz
+
+# OS junk
+.DS_Store
+Thumbs.db
