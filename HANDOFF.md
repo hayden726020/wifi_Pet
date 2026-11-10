@@ -6,6 +6,13 @@
 
 PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物画面、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI；手机连原厂热点后可访问 `http://192.168.0.1:8420/` 控制页。没有使用付费上网，也没有走运营商流量；未发现 BLE 硬件。阶段 3 手机 App/云端 AI、阶段 5 常驻安装与外壳仍待做。
 
+## 交接快照（2026-11-10 23:15 交接时）
+
+- **Git**：`main` 代码基线 `15a4e29`（PetCore + 本地链路 + 5 个 P1 修复）；本交接文件提交后以 `git log -1` 为准。
+- **远端**：`origin https://github.com/hayden726020/wifi_Pet.git`，分支 `main`；推送状态以 `git status` 的 ahead/behind 为准。
+- **设备**：已停回原厂 UI；`zte_mifi` 为 `S`；`hostapd`/`udhcpd` 运行；面板 `normal`、背光 `on`；无 `petcard`/`ui_hold` 进程；存档在 `/mnt/userdata/petcard`（约 40 B）；`/tmp` 中有修复版 `petcard`、`ui_hold`、`petcard.sh`、`petcard_resume.sh`（重启清空）。
+- **结论**：阶段 0/1/2 与手机本地链路已完成；阶段 3/4/5 未开始。下一对话可直接从文末“新对话启动包”开始。
+
 ## 本轮新增文件
 
 - `petcard/petcard.c`：设备端主程序（显示、状态、按键、HTTP、存档）。
@@ -113,6 +120,35 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 - 启停：`petcard.sh` 启动 `HOLDING 8 threads`；`killall petcard` 后无残留、UI 线程释放、快照/原厂 UI 恢复。
 - 返工：显示首轮因直接写用户缓冲区不推屏，改为 fb mmap；看门狗因整进程 SIGSTOP 重启两次，改为按线程 ptrace 挂起。独立复核提出 5 个 P1（存档回退路径、清理信号、挂起进程失联、按键事件抢占/丢事件、HTTP 阻塞），均已修复并复测。
 - 会话耗时约 60–70 分钟；精确 Token/检索次数未统计。
+
+## 新对话启动包（可直接粘贴）
+
+```text
+项目：D:\Pet_wifi（adol D623+ 随身 WiFi 改 PetCard V1）。
+先读：全局/项目 AGENTS.md、HANDOFF.md、.planning/STATE.md、petcard/README.md、
+docs/function-matrix.md、docs/known-issues.md、docs/adr-0001-local-link-and-ui-hold.md。
+当前基线：main 15a4e29（PetCore 阶段1/2 + 本地 HTTP），设备已停回原厂 UI，AP 正常；源码在 petcard/。
+
+硬约束：
+- 不要对 zte_mifi 整进程 SIGSTOP（zte_watchdog 约 10 分钟会重启设备）；用 ui_hold 只挂 UI 线程。
+- 不要杀/重配 hostapd；本地链路 192.168.0.1:8420，不启用 NAT/转发，不使用付费上网。
+- 显示必须 mmap(/dev/fb0) 后写；B-R-G；面板先 sleepout/blgon。
+- 私有固件/镜像/转储在 work/，不得提交/上传；不写凭据。
+- 每次完成按 vibe-coding-project-optimization 的完成清单；实机证据优先。
+
+待决定/下一步：
+1) 阶段3：Android App 还是 PWA/网页？先 /state + /action，再长连接/WebSocket。
+2) 阶段5：是否先做 /mnt/userdata 安装 + 开机自启（需处理 zte_mifi/看门狗）。
+3) 阶段4：云端 AI provider/人格/记忆（API key 放手机或代理，不进固件）。
+4) BLE 是否硬性要求；原板未发现 BLE 硬件。
+
+设备操作：
+- 启动：adb shell '/tmp/petcard.sh'
+- 停止：adb shell 'killall petcard'
+- 异常恢复：adb shell '/tmp/petcard_resume.sh'
+- 运行前确认 zte_mifi 为 S、hostapd 在跑；结束后确认原厂 UI 恢复。
+- 重启后 /tmp 清空：用 petcard/build.sh 重编，再 push petcard/ui_hold/脚本。
+```
 
 ## 历史基线
 

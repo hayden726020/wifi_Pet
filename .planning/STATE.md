@@ -47,8 +47,13 @@
 
 ## 入口文档
 
-- `HANDOFF.md`：当前状态、关键坑、构建/部署/运行。
+- `HANDOFF.md`：当前状态、交接快照、新对话启动包、关键坑、构建/部署/运行。
 - `petcard/README.md`：PetCore 使用与 API。
 - `docs/stage0-capability-report.md`：能力报告。
 - `docs/known-issues.md`、`docs/function-matrix.md`、`docs/adr-0001-local-link-and-ui-hold.md`：已知问题、功能矩阵、关键决策。
 - 硬件/备份交接在 Codex 私有会话目录，不在本仓库。
+
+## 交接
+
+- Git：`main` 代码基线 `15a4e29`；远端 `origin https://github.com/hayden726020/wifi_Pet.git`。
+- 下一对话：读 `HANDOFF.md` 顶部“交接快照”和文末“新对话启动包”；设备当前为原厂 UI、AP 正常、PetCore 已停止。
