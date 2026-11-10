@@ -1,101 +1,119 @@
-# D623+ 单键贪吃蛇 / PetCard 显示链路交接
+# D623+ / PetCard V1 交接
 
-更新：2026-11-10（软件基线）。硬件与私有备份交接见 Codex 2026-11-10 会话目录下的
-`outputs/HANDOFF.md`（原始 16 MiB 闪存镜像与分区清单不在本仓库，禁止提交/上传/送远端服务）。
+更新：2026-11-10 晚。上一基线：`e082af1`（单键贪吃蛇 + 显示/按键链路）。
 
 ## 一句话状态
 
-自定义程序、唯一按键、128×128 SPI 屏都已实机打通；单键贪吃蛇已显示并通过颜色校准，当前可作为 PetCard 的显示/输入基线。设备上的原厂 UI 在游戏期间被临时暂停，退出后恢复。
+PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物画面、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI；手机连原厂热点后可访问 `http://192.168.0.1:8420/` 控制页。没有使用付费上网，也没有走运营商流量；未发现 BLE 硬件。阶段 3 手机 App/云端 AI、阶段 5 常驻安装与外壳仍待做。
 
-## 已验证事实（2026-11-10 实机）
+## 本轮新增文件
 
-- 设备：adol D623+，主板 M2_V1.1，SoC ZX297520V3；ARMv7 soft-float，uClibc 0.9.33.2，内核 3.4.110-rt140。
-- ADB：调试模式下 `uid=0(admin) gid=0(root)`，设备节点 `/dev/event0`、`/dev/fb0`。
-- 唯一按键：`KEY_POWER` code 116；按下 value=1，长按自动重复 value=2。游戏只取 value=1。
-- 屏幕：fb0 128×128、16 bpp，SPI 面板驱动 `lead_t15ds26`；单缓冲，`virtual_size/stride/pan` 读 0，`FBIOPAN_DISPLAY` 返回 EINVAL。
-- 原厂 UI：`zte_mifi`（当时 PID 650；PID 以 `ps` 为准）同时占用 `/dev/event0` 和 `/dev/fb0`；会按超时把面板置为 sleep。
-- 面板调试接口：`/sys/kernel/debug/lcd_zx29/lcd_lead`，读取示例：
-  ```
-  debugfs_lcd_show  lcd_id = 0x33,
-  debugfs_lcd_show  sleep mode  sleep,   (或 normal)
-  debugfs_lcd_show  g_sLcd_Backlight  on,
-  ```
-- 驱动字符串中的命令词：`reinit`、`update`、`sleepin`、`sleepout`、`blgon`、`blgoff`、`brn`、`simspion`、`simspioff`。
-- **关键坑 1：面板会 sleep。** sleep 时向 fb 写入无效（`write` 返回 0）。先 `echo sleepout > lcd_lead`、`echo blgon > lcd_lead`，状态变为 `normal` 后再写。
-- **关键坑 2：`update` 不是推帧。** 写 `update` 会在 fb/面板上生成驱动自带的彩条测试图（带中文标签），不是把我们的帧推上去。游戏不要使用 `update`。
-- **正确刷新路径（已实机确认）：**
-  1. `sleepout` + `blgon` 唤醒面板；
-  2. 绘制到 fb mmap；
-  3. `write(fb_fd, fb_ptr, 32768)`。面板醒着时返回 32768；sleep 时返回 0。
-  4. 每 2 秒重复 `sleepout`/`blgon` 保活，防止自动熄屏。
-- **颜色格式（实机校准）：** 面板 16 位字段为 `B[15:11] R[10:5] G[4:0]`（B-R-G 565），不是常见 RGB565。写像素前必须做字段转换；当前 `snake.c` 的 `fill_rect()` 已转换：
-  - `r5=(c>>11)&31; g6=(c>>5)&63; b5=c&31;`
-  - `panel=(b5<<11)|(((r5<<1)|(r5>>4))<<5)|(g6>>1)`
-  - 用户实机确认 TEST 四角：左上红、右上绿、左下蓝、右下白。
-- 备份/恢复：进入游戏前 `kill -STOP zte_mifi`，快照 32 KiB fb；退出时用 `snake --restore` 写回快照、`sleepout`/`blgon`、再 `kill -CONT zte_mifi`。
-- **不要用 `cat snapshot > /dev/fb0`**：驱动 write 返回 0 时 `cat` 会死循环烧 CPU。
-- 游戏：单键贪吃蛇，16×14 格（8 px/格），顶部状态栏，READY/PLAY/OVER 三态；按键开始、顺时针转向、结束重开；速度 230 ms→130 ms；15 分钟 alarm 自动退出恢复。
+- `petcard/petcard.c`：设备端主程序（显示、状态、按键、HTTP、存档）。
+- `petcard/ui_hold.c`：只挂起原厂 UI/按键线程的 ptrace 工具，必须与 `petcard.sh` 一起用。
+- `petcard/sim.c`：主机模拟器 + 自测（渲染各状态帧、养成/存档/按键逻辑）。
+- `petcard/petcard.sh`、`petcard/resume.sh`、`petcard/build.sh`、`petcard/README.md`。
+- `docs/stage0-capability-report.md`：阶段 0 只读检测与能力结论（内存、存储、Wi‑Fi、BLE、看门狗）。
+- `docs/known-issues.md`、`docs/function-matrix.md`、`docs/adr-0001-local-link-and-ui-hold.md`：已知问题、功能矩阵、关键决策。
 
-## 构建与部署
+## 已验证事实（2026-11-10 晚，实机）
 
-- 工具链（WSL Ubuntu 22.04）：`gcc-arm-linux-gnueabi`（soft-float），静态链接：
-  ```
-  arm-linux-gnueabi-gcc -O2 -static -s -o snake snake.c
-  arm-linux-gnueabi-gcc -O2 -static -s -o tracer tracer.c
-  arm-linux-gnueabi-gcc -O2 -static -s -o sysloop sysloop.c
-  ```
-- 部署（`/tmp` 是 tmpfs，重启后清空，需重新 push）：
-  ```
-  adb push snake /tmp/snake
-  adb push snake.sh /tmp/snake.sh
-  adb push resume.sh /tmp/resume.sh
-  adb shell 'chmod 755 /tmp/snake /tmp/snake.sh /tmp/resume.sh'
-  ```
-- 运行游戏：`adb shell '/tmp/snake.sh'`（自行暂停原厂 UI、快照、运行、恢复）。
-  - `snake.sh` 使用 `/tmp/snake.lock` 防止重复运行；快照 `/tmp/fb0.orig` 是 write-once（不存在/无效时才创建）。要强制重新快照，先删除该文件。
-  - 游戏子进程在后台运行；wrapper 收到 HUP/INT/TERM 时会杀掉子进程、恢复快照并 `SIGCONT` 原厂 UI。
-- 调试模式：`--probe`（四色块+按键日志）、`--lcdtest`（唤醒+整帧写入测试）、`--demo`（自动演示）、`--watch`（只读按键）、`--fbinfo`、`--peek PID ADDR [N]`（读目标进程内存）、`--restore FILE`（恢复快照）。
-- 停止游戏：`adb shell 'killall snake'`（SIGTERM，包装脚本恢复原厂 UI 并 `SIGCONT`）。异常恢复：`adb shell '/tmp/resume.sh'`（先 kill 游戏，再唤醒面板/恢复快照/`SIGCONT`，并清锁）。
-- 状态检查：
-  ```
-  adb shell 'ps | grep snake; cat /sys/kernel/debug/lcd_zx29/lcd_lead; grep State /proc/650/status'
-  ```
+- 设备：adol D623+，M2_V1.1，ZX297520V3，ARMv7 Cortex-A7，soft-float，内核 3.4.110-rt140，uClibc。
+- ADB root 跨重启保留；`/dev/fb0` 128×128 16bpp；唯一按键 `KEY_POWER` code 116。
+- **显示必须走 fb mmap**：把帧复制进 `mmap(/dev/fb0)` 再从 mmap `write`，驱动才推屏；直接 write 普通用户缓冲区即使返回 32768，屏幕仍是旧内容。
+- 面板字段 **B[15:11] R[10:5] G[4:0]**；写像素前必须做 B-R-G 转换（PetCore `flush_fb`）。
+- 面板会 sleep；写前 `sleepout` + `blgon`，运行期每 2 秒保活；写返回 0 时唤醒并重试。
+- 整帧写入实测平均 **21.6–22.0 ms**，最大约 23.5 ms（`--debug` 的 `FLUSH ... avg_us`）。
+- 宠物画面、短按/长按/双击、退出恢复均已由用户在物理屏幕确认。
+- 手机连原厂热点 `adol-2D5025`（使用原厂默认密码，见设备标签，不写入仓库）后，`http://192.168.0.1:8420/` 页面和按钮正常；用户确认可用，无需缴费、无运营商流量。
+- 存档 `/mnt/userdata/petcard/state.bin` 已生成（`.bak` 同目录），重启后能加载并继续年龄/经验。
+- 手机直连只走本地 `192.168.0.1/24`；未启用 NAT/转发，不绕过任何上网计费。
+- 长稳测试：`ui_hold` 只挂 UI 线程，`zte_watchdog`/`hostap`/`wlan` 保持运行；UI 线程挂起约 **11.4 分钟、3510 帧无重启**（超过此前整进程 SIGSTOP 约 10 分钟的重启窗口），整帧平均 21.7 ms。更长时间仍需持续观察。
+- 包装脚本 `petcard.sh` 实测：`HOLDING` 检查、启动、`killall petcard` 停止、UI 线程释放、快照恢复原厂 UI 均通过。
 
-## 当前运行状态（基线提交时）
+## 关键坑与安全边界
 
-- 已停止游戏并恢复原厂 UI：`zte_mifi` 处于 `S (sleeping)`，面板 `normal`、背光 `on`，`/tmp/snake.lock` 不存在。
-- 启动游戏：`adb shell '/tmp/snake.sh'`；停止：`adb shell 'killall snake'`；异常恢复：`adb shell '/tmp/resume.sh'`。
-- 以下测试已通过（2026-11-10）：
-  - wrapper 收到 SIGTERM：子进程停止、快照恢复、UI `SIGCONT`，锁清理。
-  - 游戏运行中执行 `resume.sh`：游戏停止、UI 恢复、返回码 0。
-  - 强制 `echo sleepin > lcd_lead` 后 3 秒内，游戏自动 `sleepout` 并回到 `normal`。
-- `/tmp` 中的文件与进程在设备重启后全部消失。
+1. **不能对整个 `zte_mifi` 做 SIGSTOP。** 它内部有 `zte_watchdog` 线程；整进程冻结约 10 分钟后设备重启（两次复现）。必须用 `ui_hold` 只挂 UI 线程：
+   - 挂：`mmi_lcd_main` ×4、`mmihandlekey`、`mmi` ×2、`mmihandlemsg`；
+   - 不挂：`zte_watchdog`、`zte_mifi` 主线程、`hostap`、`wlan`、`udhcpd`。
+2. **不要杀/替换原厂 `hostapd`。** 杀掉或重配 Wi‑Fi 会触发设备重启。保留原厂 AP；本地 HTTP 只在 `192.168.0.1` 上服务。
+3. 显示路径不要用 `update`（驱动彩条测试图），不要只写普通缓冲区；必须 mmap。
+4. 面板 sleep 时写 fb 无效；先唤醒，失败重试，并每 2 秒保活。
+5. `/tmp` 是 tmpfs，重启清空；当前二进制（petcard 约 588 KB + ui_hold 约 502 KB）放在 `/tmp` 只适合开发。长期运行应安装到 `/mnt/userdata` 并评估 jffs2 执行、内存和开机自启。
+6. 私有闪存镜像、固件分块、NV、fb 原始转储在 `work/`（gitignore），禁止提交/上传。
+7. 电池焊盘未修；当前 USB‑C 外接供电。外接移动电源的低负载断电/启动电流仍需实测。
+8. BLE：无 `/sys/class/bluetooth`、无 HCI、无 BT 固件，V1 手机控制走 Wi‑Fi 本地 HTTP。若 BLE 是硬性要求，需要重新评估硬件。
+9. 不要用 `cat snapshot > /dev/fb0` 写回：面板 sleep 时 `write` 返回 0，`cat` 会死循环烧 CPU。用 `petcard --restore`。
+10. `ui_hold` 被 SIGKILL 可能留下 ptrace 停止的 UI 线程；优先 SIGTERM，异常时用 `resume.sh`，必要时重启设备。
 
-## 已知问题与风险
+## 网络与付费边界
 
-1. 暂停 `zte_mifi` 会冻结原厂 UI；正常退出会恢复。wrapper 已改为后台子进程 + trap；若 wrapper 或游戏被 SIGKILL、ADB 会话异常断开，可能留下 UI 停止/面板亮着：先跑 `/tmp/resume.sh`，必要时重启设备（调试模式已验证跨重启保留）。
-2. 面板 sleep 是主要坑：任何新程序都必须先 `sleepout`/`blgon`，并在运行期间保活；否则 `write` 返回 0、屏幕只发光。`flush_fb` 在 `write` 非 32768 时会重新唤醒并保持 dirty，下一轮重试。
-3. `update` 是驱动测试图命令，不是帧刷新；不要混用。
-4. 颜色字段 B-R-G 是本机实机校准结果；换屏/换固件后需重新校准。
-5. 设备内存约 22 MiB、`/tmp` 约 1 MiB、`/mnt/userdata` 约 3 MiB；当前静态二进制约 0.5 MiB（514,500 B）。后续 PetCard 常驻需做内存/存储预算。
-6. 私有闪存镜像、固件分块、NV 文件、fb 原始转储均在 `work/`（已 gitignore），不得提交。`work/` 中的 `cpuap_*.lzma` 解出的内核/固件仅用于只读分析。
-7. `/tmp` 不是持久化位置；PetCard 若要开机自启，需要设计 `/mnt/userdata` 安装与启动脚本，并评估与 `zte_mifi` 的共存。
-8. `tracer` 正常收到 SIGINT/TERM/HUP 会 `PTRACE_DETACH`；若被 SIGKILL，目标进程可能留在 ptrace stop，需要 `kill -CONT <pid>`（本机 `zte_mifi` 为 650）。
+- 原厂 AP：`hostapd` + `udhcpd` + `dnsmasq`，`br0` = wlan0 + usblan0，`192.168.0.1/24`，SSID `adol-2D5025`，密码为原厂默认值（不写入仓库）。
+- 付费限制在**上网出口**，不在 Wi‑Fi 关联或本地入站；`iptables INPUT` 对 br0 放行。PetCore 只做 `192.168.0.1:8420` 本地 HTTP，不启用转发/NAT。
+- 设备没有可用 `wpa_supplicant` 二进制，STA 方案暂不可行；保留原厂 AP + 手机蜂窝上网（方案 B）是当前路线。
+- 手机 App 若同时需要本地 HTTP 和云端 AI，Android 侧应使用 `ConnectivityManager` 绑定 Wi‑Fi 网络走本地、蜂窝走云端。
 
-## 下一步（PetCard V1）
+## 构建 / 部署 / 运行
 
-1. 先做本局游戏的人工试玩：确认转向、吃到食物、撞墙/撞自己、结束后重开、15 分钟自动恢复原厂 UI。
-2. 按 `PetCard_V1_项目实施方案.md` 开发 PetCore：显示引擎、养成状态、按键管理、与手机通信；直接复用已验证的 `sleepout/blgon + 整帧 write + B-R-G 颜色转换`。
-3. 先做 32×32/64×64 宠物精灵放大到 128×128，测刷新率、内存与 SPI 写入耗时，再决定动画帧率。
-4. 需要产品决策/验证：常驻方式（`/mnt/userdata`/开机脚本）、是否停 `zte_mifi`、Wi-Fi STA 与 BLE 能力、手机端协议。
-5. 验收门槛：**实机屏幕 + 实体按键 + 退出后原厂 UI 恢复**；不要把 fb 回读或 `update` 测试图当成面板证据。
+WSL（Ubuntu，已装 `gcc-arm-linux-gnueabi`）：
 
-## 本次会话证据与复现
+```sh
+cd petcard
+./build.sh
+# 产物：petcard（ARM 静态）、ui_hold（ARM 静态）、petcard_sim（主机自测）
+```
 
-- 按键探针日志：`EV type=1 code=116 value=1`，确认唯一按键为 KEY_POWER。
-- 显示测试日志：`FBWRITE n=32768 errno=0`（面板醒着）；sleep 时同一写返回 0。
-- 用户实机确认（颜色校准）：TEST 四角为左上红、右上绿、左下蓝、右下白。
-- 面板状态：`sleep mode normal`、`g_sLcd_Backlight on`。
-- 恢复测试：wrapper SIGTERM 后无残留 `snake`、`zte_mifi` 为 `S`、面板 `normal`、锁已清理；`resume.sh` 在游戏运行中恢复并返回 0；强制 `sleepin` 后 3 秒内自动回到 `normal`。
-- 构建：WSL `arm-linux-gnueabi-gcc -O2 -static -s`；部署：adb push 到 `/tmp`。
-- 会话耗时约 70 分钟；精确 Token/检索次数未统计。返工主要集中在面板 sleep、`update` 测试图误判和颜色字段顺序。
+部署（Git Bash 注意 `MSYS_NO_PATHCONV=1`，源路径用 Windows 形式）：
+
+```sh
+adb push petcard /tmp/petcard
+adb push ui_hold /tmp/ui_hold
+adb push petcard.sh /tmp/petcard.sh
+adb push resume.sh /tmp/petcard_resume.sh
+adb shell 'chmod 755 /tmp/petcard /tmp/ui_hold /tmp/petcard.sh /tmp/petcard_resume.sh'
+```
+
+运行：
+
+```sh
+adb shell '/tmp/petcard.sh --debug'
+```
+
+停止：`adb shell 'killall petcard'`。异常恢复：`adb shell '/tmp/petcard_resume.sh'`。
+
+`petcard.sh` 会先快照原厂 fb，启动 `ui_hold` 并确认 `HOLDING`，再启动 PetCore；退出时杀 PetCore/`ui_hold`、写回快照、唤醒面板。`ui_hold` 每隔 5 秒重扫线程，原厂 UI 线程若被重新拉起会再次挂起。
+
+常用调试：
+
+```sh
+adb shell '/tmp/petcard --status'     # 读存档 JSON
+adb shell '/tmp/petcard --reset'      # 删存档
+adb shell '/tmp/ui_hold --list 650'   # 列出 zte_mifi 线程
+adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
+```
+
+## 当前设备状态（本轮收尾时）
+
+- 已停止 PetCore，原厂 UI 恢复；`zte_mifi` 为 `S`；面板 `normal`；`hostapd`/`udhcpd` 保持；`/tmp` 中的程序在重启后需重新 push。
+- 存档保留在 `/mnt/userdata/petcard/`。
+- 手机仍可连原厂热点访问设备本地服务（PetCore 运行时）。
+
+## 下一步
+
+1. 阶段 3：手机端 App（优先 Android 原生）或先做本地网页 PWA；对接 `/state`、`/action`，再设计 WebSocket/长连接。
+2. 阶段 4：云端 AI 代理、人格/记忆；情绪只作为建议，数值由本地养成引擎校验。
+3. 阶段 5：安装到 `/mnt/userdata`、开机自启、与 `zte_mifi` 的 UI 线程挂起/恢复自动化；外壳、USB‑C 供电与移动电源测试。
+4. 继续观察 `ui_hold` 的长期稳定性；如果原厂 UI 线程被重启或看门狗策略变化，需要重新评估常驻方案。
+5. 产品决策：BLE 是否硬性要求；若必须，需要重新确认硬件或接受外接方案。
+
+## 本次会话证据与指标
+
+- 主机自测：`petcard_sim` 16 项全部 PASS（feed/play/pet/睡眠恢复/阶段/存档往返/短按/长按/双击/JSON）。
+- 实机长稳：UI 线程挂起约 11.4 分钟、3510 帧、平均 21.7 ms、无重启；面板保持 `normal`。
+- 实机功能：用户确认屏幕宠物、三种按键、手机 8420 页面/按钮均正常。
+- 启停：`petcard.sh` 启动 `HOLDING 8 threads`；`killall petcard` 后无残留、UI 线程释放、快照/原厂 UI 恢复。
+- 返工：显示首轮因直接写用户缓冲区不推屏，改为 fb mmap；看门狗因整进程 SIGSTOP 重启两次，改为按线程 ptrace 挂起。独立复核提出 5 个 P1（存档回退路径、清理信号、挂起进程失联、按键事件抢占/丢事件、HTTP 阻塞），均已修复并复测。
+- 会话耗时约 60–70 分钟；精确 Token/检索次数未统计。
+
+## 历史基线
+
+单键贪吃蛇、显示/按键/颜色校准的详细记录保留在提交 `e082af1` 的 `HANDOFF.md` 历史版本；本文件已更新为 PetCard 当前状态。硬件只读检测的完整数据见 `docs/stage0-capability-report.md` 与 `work/probe/`（work 已 gitignore）。

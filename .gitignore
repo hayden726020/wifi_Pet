@@ -5,6 +5,9 @@ work/
 snake/snake
 snake/tracer
 snake/sysloop
+petcard/petcard
+petcard/ui_hold
+petcard/petcard_sim
 *.o
 
 # Raw framebuffer/firmware dumps and derived images
