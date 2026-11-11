@@ -33,3 +33,7 @@ petcard/petcard_sim
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Android Gradle build outputs and local state
+android/.gradle/
+android/**/build/

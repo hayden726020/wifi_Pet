@@ -1,5 +1,16 @@
 # D623+ / PetCard V1 交接
 
+## 最新状态：2026-11-11 阶段 4 Android 首个竖切
+
+- **Git 基线已提交并推送**：`22e4176 Document phase 3 phone acceptance`，推送到 `origin/main`。本次阶段 4 文件仍在工作区，尚未提交/推送。
+- 用户配置：DeepSeek `https://api.deepseek.com` / `deepseek-flash`；Key 在 Android Keystore 保护的本机存储；聊天内容允许发给 provider，但 App 内默认需勾选确认；每天最多 ¥5 的 App 内预算 gate；长期记忆默认只存在手机。
+- 新增 `android/` 原生 App 骨架和首个竖切：离线假模型、provider 接口、DeepSeek Chat Completions adapter、严格建议 JSON parser、AES/GCM + Android Keystore KeyStore、请求前预算预留/返回 usage 后结算、本机记忆人工批准/清空、宠物 `/state` 和确认后 `/action` 走设备 Wi‑Fi Network、云 API 走已验证蜂窝 Network。
+- 建议 schema 在 `docs/stage4-ai-suggestion.schema.json`。模型只返回回复、有限情绪/动作枚举和记忆候选，不产生宠物数值；动作执行前二次确认，记忆只在用户勾选后本机保存。
+- **验证**：Android Java 源码 `javac -encoding UTF-8` 对 Android 36 `android.jar` 编译通过；Gradle 8.13 `:app:assembleDebug` 成功，生成 [debug APK](/D:/Pet_wifi/android/app/build/outputs/apk/debug/app-debug.apk)（26,694 B）。构建提示 SDK XML 文件版本 4 而当前工具支持到 3，以及 Gradle 9.0 弃用警告。已通过 ADB 安装并启动到 Android 16 手机；离线假模型实际返回默认回复、`happy`、`none`，预算为 ¥0.0000。手机未连 PetCard 热点，设备状态显示 timeout；Wi‑Fi/蜂窝分流、Key 存储和真实 API 尚未验收。
+- **没有真实 API 请求**，没有输入/写入 Key，没有产生费用。预算是本 App 的本地估算 gate，不能覆盖同一 DeepSeek Key 在其他 App/设备上的用量，也不是 provider 账单硬上限。
+- 下一步：手机连接 PetCard 热点后验收设备 Wi‑Fi 状态/动作；再验收蜂窝流量分流、Key 保存/删除、本地记忆和预算 gate。真实 API 调用应在用户把 Key 输入 App 并主动点击联网聊天后进行。
+- 详细路线图：`.planning/ROADMAP.md`；阶段状态：`.planning/STATE.md`；schema：`docs/stage4-ai-suggestion.schema.json`。
+
 ## 最新状态：2026-11-11 手机页面故障排查（优先于下文历史快照）
 
 - 用户确认手机连接设备热点 `adol-2D5025`，但页面最初打不开；启动尝试前设备屏幕显示原厂 UI。ADB 设备序列 `1234567890ABCDEF` 可连接。
@@ -21,7 +32,7 @@
 
 ## 一句话状态
 
-PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。阶段 3 Companion 页面及手机 Wi‑Fi 视觉/喂食/玩耍/摸摸/睡觉触控验收已通过，USB ADB 也验证 `/state`、主页和 PNG 路由。PetCard 当前运行；启动用 ADB shell 必须保持打开，否则设备会向包装脚本发送 Hangup 并恢复原厂 UI。Android App 和长连接/WebSocket 尚未决定或开发。未使用付费上网或运营商流量；未发现 BLE 硬件。阶段 4 云端 AI、阶段 5 常驻安装与外壳仍待做。
+PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。阶段 3 Companion 页面及手机 Wi‑Fi 视觉/喂食/玩耍/摸摸/睡觉触控验收已通过，USB ADB 也验证 `/state`、主页和 PNG 路由。PetCard 当前运行；启动用 ADB shell 必须保持打开，否则设备会向包装脚本发送 Hangup 并恢复原厂 UI。阶段 4 Android 首个竖切已在工作区：离线假模型、DeepSeek adapter、Keystore key、¥5/日 App 预算 gate、Wi‑Fi/蜂窝分流、动作确认和本机记忆审批/清空；Java 源编译及 Gradle APK 构建通过，已装到 Android 16 手机并运行离线假模型初验。手机未连 PetCard AP，网络分流待验。用户允许聊天发送，App 内仍要求勾选；本轮没有 API 请求。未使用付费上网或运营商流量；未发现 BLE 硬件。阶段 5 常驻安装与外壳仍待做。
 
 ## 交接快照（2026-11-10 23:15 交接时）
 
@@ -125,7 +136,7 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 ## 下一步
 
 1. 阶段 3 页面验收已完成：手机在设备 AP 下打开 Companion 页并确认视觉与喂食/玩耍/摸摸/睡觉按钮正常；设备日志与状态计数吻合。后续产品决策：是否包装为 Android App、是否需要长连接/WebSocket。
-2. 阶段 4：云端 AI 代理、人格/记忆；情绪只作为建议，数值由本地养成引擎校验。
+2. 阶段 4（进行中：首个 Android 竖切已写入）：先解决 Gradle APK 构建环境冲突，再做手机安装验收；之后完善记忆/会话，真实 API 仅由用户在 App 输入 Key 后主动发起。
 3. 阶段 5：安装到 `/mnt/userdata`、开机自启、与 `zte_mifi` 的 UI 线程挂起/恢复自动化；外壳、USB‑C 供电与移动电源测试。
 4. 继续观察 `ui_hold` 的长期稳定性；如果原厂 UI 线程被重启或看门狗策略变化，需要重新评估常驻方案。
 5. 产品决策：BLE 是否硬性要求；若必须，需要重新确认硬件或接受外接方案。

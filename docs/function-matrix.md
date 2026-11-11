@@ -12,8 +12,8 @@
 | 手机 Companion 情绪动画页 | A | 2026-11-11 用户在手机连接设备 AP 后确认页面及喂食/玩耍/摸摸/睡觉按钮正常；设备日志记录操作成功，`interactions` 从 17 增至 21；USB ADB 转发验证 `/state`、主页和 PNG 路由为 200 | 当前启动依赖保持 ADB shell 前台连接；如需长期使用，应处理常驻启动方案 |
 | 退出恢复原厂 UI | A | 包装脚本停止后 `zte_mifi` S、线程释放、快照恢复；fb/用户确认 | 背光偶发关闭，已补 blgon |
 | 常驻/看门狗兼容 | B | 只挂 UI 线程约 11.4 分钟无重启 | 小时级稳定性待观察 |
-| 手机 App | D | — | 阶段 3；Android 绑定 Wi‑Fi+蜂窝 |
-| 云端 AI/长期记忆 | D | — | 阶段 4 |
+| Android Companion App | C | Android 16 手机已通过 ADB 安装并启动 APK；离线假模型实际返回默认回复、happy、none；Gradle `assembleDebug` 成功，APK 26,694 B | 手机未连 PetCard AP，设备状态 timeout；本地 Wi‑Fi/蜂窝路由、Keystore 尚待验收 |
+| 云端 AI/长期记忆 | C | 离线假模型实际运行；DeepSeek adapter、严格建议 schema、Keystore key、本机记忆审批/清空、动作确认及 ¥5/日预算 gate 已实现；预算仍为 ¥0.0000，本轮未调用 API | 真实网络、计费及分流需验收；¥5 为本 App 本机估算 gate，不约束同一 key 的其他用量或本机日期/数据清理 |
 | 开机自启/安装到 userdata | D | — | 阶段 5 |
 | 外壳/移动电源/供电 | D | — | 阶段 5 |
 | 手机语音/设备语音 | D | — | V1.1 之后 |
@@ -27,4 +27,4 @@
 - 阶段 1：显示/按键原型完成并实机验收。
 - 阶段 2：离线养成完成并实机验收。
 - 阶段 3：本地 HTTP 协议与 Companion 页面部署完成；2026-11-11 手机视觉及喂食/玩耍/摸摸/睡觉触控验收通过。Android App 与长连接未开始，按后续产品需求决定。
-- 阶段 4/5：未开始。
+- 阶段 4：安全契约、路线图和首个 Android 竖切已开始；Java 源编译及 Gradle APK 打包通过，手机安装/运行验收待办。DeepSeek `deepseek-flash` 与 key/数据/预算边界已由用户确认；本轮未发起真实 API 请求。阶段 5：未开始。

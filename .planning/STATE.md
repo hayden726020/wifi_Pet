@@ -7,7 +7,7 @@
 此前用户确认固定帧下 RGB565 高字节优先模式已消除实物屏色块，程序曾恢复动画运行。该 PID 快照已过时，不代表当前运行状态。详见 HANDOFF 中“此前状态”与当前排查记录。
 
 - 更新：2026-11-11
-- 阶段：PetCard V1 阶段 1/2 完成实机验收；阶段 3 Companion 页面视觉和四种触控操作由用户手机确认正常，设备日志与状态计数吻合。当前 PetCard 正运行，需保持 ADB 前台会话。Android App/长连接尚未开始；阶段 4 与阶段 5 未开始。
+- 阶段：阶段 1/2 已完成实机验收；阶段 3 Companion 手机视觉和四种触控操作通过验收。阶段 4 已开始：Android 原生工程及 4A/4B 首个竖切已写入工作区；包括 DeepSeek adapter、Keystore 加密 key、本地 ¥5/日预算 gate、离线假模型、动作二次确认、本机记忆批准/清空、设备 Wi‑Fi 与蜂窝请求分流。Gradle `:app:assembleDebug` 成功，APK 为 `android/app/build/outputs/apk/debug/app-debug.apk`（26,694 B）；Java 源码编译通过。APK 已安装到 Android 16 手机并启动；离线假模型实际返回默认回复、happy、none，预算显示 ¥0.0000。手机未连接 PetCard 热点，故 `/state` 显示 timeout；尚未实测本地 Wi‑Fi/蜂窝分流、Key/预算写入，未发起真实 API 请求。用户配置：DeepSeek `deepseek-flash`，聊天发送需 App 内勾选确认，key 存 Android Keystore，每日 app 内预算 ¥5，长期记忆默认仅本地；详见 `.planning/ROADMAP.md`。PetCard 当前仍需保持 ADB 前台会话；阶段 5 未开始。
 - 当前交接基线：本次提交推送后成为 `main`/`origin/main` HEAD；具体 SHA 以 `git log -1` 为准。
 
 ## 已完成
@@ -47,8 +47,8 @@
 
 ## 下一步
 
-1. 阶段 3：用手机打开已部署页面，确认视觉布局和触控喂食/玩耍/摸摸/睡觉；设备 LCD 新图已通过 framebuffer 回读确认，主机已验证 `/state`、无状态变更的 `wake` 与 20 张 PNG。再决定是否包装为 Android App，以及是否需要长连接/WebSocket。
-2. 阶段 4：云端 AI 代理、人格、长期记忆；AI 只提供情绪/动作建议。
+1. 阶段 4：先解决 Gradle APK 打包环境冲突，再安装 Android App 做离线假模型、设备 Wi‑Fi 状态/动作、蜂窝分流、Key 存储与预算拒绝路径实机验收；之后才考虑真实 API 请求。
+2. 阶段 4 后续：完善记忆与会话体验，确认 DeepSeek 输出兼容性；严格保留用户确认动作和 app 内费用 gate。
 3. 阶段 5：常驻安装、开机自启、UI 线程挂起自动化、外壳、USB‑C 供电与移动电源实测。
 4. 产品决策：BLE 是否硬性要求；若必须，需要重新确认硬件或接受外接方案。
 

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://petcard.local/schemas/ai-suggestion.v1.json",
+  "title": "PetCard AI suggestion v1",
+  "description": "Normalized model output. Suggestions never directly write PetCore state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reply_text",
+    "mood_suggestion",
+    "action_suggestion",
+    "memory_candidates"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "reply_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    },
+    "mood_suggestion": {
+      "type": "string",
+      "enum": ["idle", "happy", "hungry", "tired", "angry", "sleep"]
+    },
+    "action_suggestion": {
+      "type": "string",
+      "enum": ["none", "feed", "play", "pet", "sleep", "wake"]
+    },
+    "memory_candidates": {
+      "description": "Proposals shown for local user approval; never persisted automatically.",
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      }
+    }
+  }
+}
