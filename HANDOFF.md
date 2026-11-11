@@ -1,19 +1,27 @@
 # D623+ / PetCard V1 交接
 
-## 最新状态：2026-11-11 颜色格式修正（优先于下文历史快照）
+## 最新状态：2026-11-11 手机页面故障排查（优先于下文历史快照）
+
+- 用户确认手机连接设备热点 `adol-2D5025`，但页面最初打不开；启动尝试前设备屏幕显示原厂 UI。ADB 设备序列 `1234567890ABCDEF` 可连接。
+- 设备刚重启后 `/tmp` 清空；`/proc/uptime` 曾为 64.91 秒，`dmesg`/`logread` 不存在，重启原因未知。未执行整进程 SIGSTOP 或主动设备重启。之后按用户授权重新部署程序、恢复脚本、页面和 44 个素材。
+- 设备没有 `nohup`。后台启动会在 ADB shell 关闭时收到 `Hangup`，包装脚本按设计停止 PetCard 并释放 UI 线程；改为保持 ADB shell 前台连接后启动成功。
+- **当前运行**：`ui_hold` 报告 `HOLDING 8 threads`，PetCore 日志显示 `HTTP listening on 0.0.0.0:8420`；`zte_mifi` 与 `hostapd` 保持运行。USB ADB 临时转发验证 `/state` 返回 JSON，主页和动画 PNG 分别返回 HTTP 200；临时转发已移除。用户手机反馈页面和按钮操作正常；设备日志记录 feed/play/pet/sleep 请求成功，`interactions` 从 17 增至 21。检查期间 uptime 从约 325 秒增长到约 906 秒，无再次重启。阶段 3 Companion 手机视觉/触控验收通过。
+- **保持启动用的 ADB shell 连接打开**：该设备没有 nohup/setsid；shell 断开会触发包装脚本清理、恢复原厂 UI。电脑端 ADB 位于 `C:\Users\SPcuteAG\AppData\Local\Android\Sdk\platform-tools\adb.exe`。下列颜色修正中的 PID 与运行状态属于旧快照，不代表当前。
+
+## 此前状态：2026-11-11 颜色格式修正
 
 - 用户确认 `--freeze-frame` 静止画面仍有彩色色块，排除动画切帧为主因。此前 framebuffer 回读预览干净不能证明面板颜色正确；预览使用了发送端对应的 B-R-G 解码，缺少独立校准。
 - 将原始回读按 **RGB565 高字节在前** 解码，可复现照片中的蓝底、绿状态条和人物彩色斑块。高度怀疑历史 B-R-G 颜色映射结论错误；纯原色校准不足以验证中间色和位序。
 - 用户已确认固定帧在 RGB565 高字节优先模式下色块消失。该格式现设为默认，旧 B-R-G 保留为 `--panel-bgr565` 回退选项；帧刷新仍走 fb mmap/write，快照恢复逻辑不变。
 - 默认格式构建、宿主模拟测试（原色/暗底/灰色/黑白/旧格式）和独立复核通过。已重新部署程序、ui_hold、启动脚本和 20 张 RGBA 帧。
-- **当前运行**：PetCard 已重启为默认 RGB565 BE 动画版（PID 1789，wrapper PID 1777，ui_hold PID 1786，HOLDING 8 threads）；`zte_mifi` PID 650 与 `hostapd` PID 1085 正常。间隔 300 ms 的 framebuffer 回读不同，变化位于人物区域，确认动画帧正在更新。面板 `normal`、背光 `on`。
-- ADB 传输曾短暂中断，但用户确认设备一直连接；重连后设备正常枚举。不得仅因 ADB transport 丢失推断设备重启或断电。禁止整进程 SIGSTOP zte_mifi，禁止杀 hostapd，显示必须 fb mmap 写。
+- **此前运行状态（当前已过时）**：PetCard 曾运行默认 RGB565 BE 动画版（PID 1789，wrapper PID 1777，ui_hold PID 1786，HOLDING 8 threads）；`zte_mifi` PID 650 与当时的 `hostapd` PID 1085 正常。间隔 300 ms 的 framebuffer 回读不同，人物区域变化，面板 `normal`、背光 `on`。
+- 历史安全提醒：ADB transport 丢失本身不能证明设备重启或断电；应结合 uptime 等证据。禁止整进程 SIGSTOP zte_mifi，禁止杀 hostapd，显示必须 fb mmap 写。
 
 更新：2026-11-11。本次提交推送后成为 PetCard 当前基线；具体提交号以 `git log -1` 为准。清理素材、设备端 Companion 与 RGB565 字节序修复已部署验证。
 
 ## 一句话状态
 
-PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。用户确认格式修正后色块消失，动画已恢复。手机 Companion 页已部署并经设备 AP 检查；手机视觉/触控验收仍待做。当前设备正在运行 PetCard，程序与素材位于 `/tmp`，设备重启后需重新部署。未使用付费上网或运营商流量；未发现 BLE 硬件。阶段 4 云端 AI、阶段 5 常驻安装与外壳仍待做。
+PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。阶段 3 Companion 页面及手机 Wi‑Fi 视觉/喂食/玩耍/摸摸/睡觉触控验收已通过，USB ADB 也验证 `/state`、主页和 PNG 路由。PetCard 当前运行；启动用 ADB shell 必须保持打开，否则设备会向包装脚本发送 Hangup 并恢复原厂 UI。Android App 和长连接/WebSocket 尚未决定或开发。未使用付费上网或运营商流量；未发现 BLE 硬件。阶段 4 云端 AI、阶段 5 常驻安装与外壳仍待做。
 
 ## 交接快照（2026-11-10 23:15 交接时）
 
@@ -116,7 +124,7 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 
 ## 下一步
 
-1. 阶段 3：用手机打开已部署页面，确认视觉布局和触控喂食/玩耍/摸摸/睡觉；主机已验证 `/state`、无状态变更的 `wake` 与 20 张素材。再决定 Android App、长连接/WebSocket。
+1. 阶段 3 页面验收已完成：手机在设备 AP 下打开 Companion 页并确认视觉与喂食/玩耍/摸摸/睡觉按钮正常；设备日志与状态计数吻合。后续产品决策：是否包装为 Android App、是否需要长连接/WebSocket。
 2. 阶段 4：云端 AI 代理、人格/记忆；情绪只作为建议，数值由本地养成引擎校验。
 3. 阶段 5：安装到 `/mnt/userdata`、开机自启、与 `zte_mifi` 的 UI 线程挂起/恢复自动化；外壳、USB‑C 供电与移动电源测试。
 4. 继续观察 `ui_hold` 的长期稳定性；如果原厂 UI 线程被重启或看门狗策略变化，需要重新评估常驻方案。
