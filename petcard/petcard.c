@@ -30,6 +30,15 @@
 #define H 128
 #define FB_BYTES (W * H * 2)
 #define HTTP_PORT 8420
+#define SPRITE_W 64
+#define SPRITE_H 64
+#define SPRITE_FRAME_BYTES (SPRITE_W * SPRITE_H * 4)
+#ifdef PET_SIM
+#define SPRITE_DIR "petcard/assets"
+#else
+#define SPRITE_DIR "/tmp/petcard-www/assets"
+#endif
+#define HTTP_WEB_ROOT "/tmp/petcard-www"
 
 #define KEY_POWER 116
 #define LONG_MS 650
@@ -172,6 +181,11 @@ static const uint8_t HEART5[5]     = {0x0A, 0x1F, 0x1F, 0x0E, 0x04};
 static uint16_t g_canvas[W * H];
 static uint16_t g_panel[W * H];
 static uint16_t g_snapshot[W * H];
+static uint8_t g_sprite_frames[4][SPRITE_FRAME_BYTES];
+static int g_sprite_type = -1;
+static int g_sprite_loaded;
+static int g_freeze_sprite_frame = 0;
+static int g_panel_rgb565_be = 1;
 
 static PetState g_state;
 static char g_save_path[64], g_save_bak[64], g_save_tmp[64];
@@ -753,7 +767,42 @@ static void draw_eye(int x, int y, int style)
     }
 }
 
-static void draw_pet(int emo, long long t)
+static int sprite_type_for_emotion(int emo)
+{
+    if (emo == EMO_SLEEP) return 4;
+    if (emo == EMO_HUNGRY) return 1;
+    if (emo == EMO_TIRED) return 2;
+    if (emo == EMO_ANGRY) return 3;
+    return 0;
+}
+
+static int sprite_scale_for_stage(int stage)
+{
+    return 72 + clamp_int(stage, 0, 3) * 4;
+}
+
+static int load_sprite_frames(int type)
+{
+    static const char *const PREFIXES[] = {"happy", "hungry", "sleepy", "grumpy", "sleep"};
+    if (g_sprite_type == type) return g_sprite_loaded;
+    g_sprite_type = type;
+    g_sprite_loaded = 0;
+
+    for (int i = 0; i < 4; i++) {
+        char path[160];
+        snprintf(path, sizeof(path), "%s/%s_%d.rgba", SPRITE_DIR, PREFIXES[type], i + 1);
+        FILE *f = fopen(path, "rb");
+        if (!f) return 0;
+        size_t n = fread(g_sprite_frames[i], 1, SPRITE_FRAME_BYTES, f);
+        int extra = fgetc(f);
+        fclose(f);
+        if (n != SPRITE_FRAME_BYTES || extra != EOF) return 0;
+    }
+    g_sprite_loaded = 1;
+    return 1;
+}
+
+static void draw_pet_procedural(int emo, long long t)
 {
     int sc = clamp_int(g_state.stage, 0, 3);
     int rx = 26 + sc * 3;
@@ -838,6 +887,39 @@ static void draw_pet(int emo, long long t)
     } else {
         line(cx - 5, my, cx - 1, my + 2, 2, C_MOUTH);
         line(cx - 1, my + 2, cx + 5, my, 2, C_MOUTH);
+    }
+}
+
+static void draw_pet(int emo, long long t)
+{
+    if (!load_sprite_frames(sprite_type_for_emotion(emo))) {
+        draw_pet_procedural(emo, t);
+        return;
+    }
+
+    const int scale = sprite_scale_for_stage(g_state.stage);
+    const int left = (W - scale) / 2;
+    const int top = (H - scale) / 2;
+    const int frame = g_freeze_sprite_frame ? 0 : (int)((t / 220) % 4);
+    const uint8_t *sprite = g_sprite_frames[frame];
+    fill_ellipse(W / 2, 104, 23, 3, C_SHADOW);
+    for (int y = 0; y < scale; y++) {
+        int sy = y * SPRITE_H / scale;
+        for (int x = 0; x < scale; x++) {
+            int sx = x * SPRITE_W / scale;
+            const uint8_t *src = sprite + (sy * SPRITE_W + sx) * 4;
+            int a = src[3];
+            if (!a) continue;
+            int px = left + x, py = top + y;
+            uint16_t under = g_canvas[py * W + px];
+            int ur = (((under >> 11) & 0x1f) * 255 + 15) / 31;
+            int ug = (((under >> 5) & 0x3f) * 255 + 31) / 63;
+            int ub = ((under & 0x1f) * 255 + 15) / 31;
+            int r = (src[0] * a + ur * (255 - a) + 127) / 255;
+            int g = (src[1] * a + ug * (255 - a) + 127) / 255;
+            int b = (src[2] * a + ub * (255 - a) + 127) / 255;
+            put_px(px, py, RGB(r, g, b));
+        }
     }
 }
 
@@ -999,6 +1081,18 @@ static void render_frame(long long now)
 
 /* ---------------- hardware ---------------- */
 
+static uint16_t encode_panel_pixel(uint16_t c)
+{
+    /* The ARM framebuffer is little endian; swapping emits RGB565 MSB first. */
+    if (g_panel_rgb565_be)
+        return (uint16_t)((c << 8) | (c >> 8));
+    uint16_t r5 = (c >> 11) & 0x1F;
+    uint16_t g6 = (c >> 5) & 0x3F;
+    uint16_t b5 = c & 0x1F;
+    uint16_t r6 = (uint16_t)((r5 << 1) | (r5 >> 4));
+    return (uint16_t)((b5 << 11) | (r6 << 5) | (g6 >> 1));
+}
+
 #ifndef PET_SIM
 
 #define LCD_DEBUGFS "/sys/kernel/debug/lcd_zx29/lcd_lead"
@@ -1065,13 +1159,7 @@ static int flush_fb(void)
 {
     if (g_fb_fd < 0) return 0;
     for (int i = 0; i < W * H; i++) {
-        uint16_t c = g_canvas[i];
-        uint16_t r5 = (c >> 11) & 0x1F;
-        uint16_t g6 = (c >> 5) & 0x3F;
-        uint16_t b5 = c & 0x1F;
-        uint16_t r6 = (uint16_t)((r5 << 1) | (r5 >> 4));
-        uint16_t g5 = (uint16_t)(g6 >> 1);
-        g_panel[i] = (uint16_t)((b5 << 11) | (r6 << 5) | g5);
+        g_panel[i] = encode_panel_pixel(g_canvas[i]);
     }
 
     struct timeval t0, t1;
@@ -1253,6 +1341,72 @@ static void http_send(int fd, int code, const char *ctype, const char *body)
     write_all(fd, body, strlen(body));
 }
 
+static void http_send_bytes(int fd, const char *ctype, const void *body, size_t len)
+{
+    char hdr[256];
+    int n = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %lu\r\n"
+        "Cache-Control: %s\r\nConnection: close\r\n"
+        "X-Content-Type-Options: nosniff\r\n\r\n",
+        ctype, (unsigned long)len,
+        strcmp(ctype, "image/png") == 0 ? "public, max-age=86400" : "no-store");
+    if (n > 0) write_all(fd, hdr, (size_t)n);
+    write_all(fd, body, len);
+}
+
+static int http_serve_web_file(int fd, const char *path)
+{
+    static const char *const SPRITES[] = {
+        "happy_1.png", "happy_2.png", "happy_3.png", "happy_4.png",
+        "hungry_1.png", "hungry_2.png", "hungry_3.png", "hungry_4.png",
+        "sleepy_1.png", "sleepy_2.png", "sleepy_3.png", "sleepy_4.png",
+        "grumpy_1.png", "grumpy_2.png", "grumpy_3.png", "grumpy_4.png",
+        "sleep_1.png", "sleep_2.png", "sleep_3.png", "sleep_4.png"
+    };
+    char file_path[256];
+    const char *name = NULL;
+    const char *ctype = "text/html; charset=utf-8";
+    int asset = 0;
+    if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
+        name = "index.html";
+    } else if (strncmp(path, "/assets/", 8) == 0) {
+        char requested[32];
+        const char *end = strchr(path + 8, '?');
+        size_t len = end ? (size_t)(end - (path + 8)) : strlen(path + 8);
+        if (len >= sizeof(requested)) return 0;
+        memcpy(requested, path + 8, len);
+        requested[len] = '\0';
+        for (size_t i = 0; i < sizeof(SPRITES) / sizeof(SPRITES[0]); i++) {
+            if (strcmp(requested, SPRITES[i]) == 0) {
+                name = SPRITES[i];
+                ctype = "image/png";
+                asset = 1;
+                break;
+            }
+        }
+    }
+    if (!name) return 0;
+
+    int pn = snprintf(file_path, sizeof(file_path), "%s/%s%s", HTTP_WEB_ROOT,
+        asset ? "assets/" : "", name);
+    if (pn < 0 || (size_t)pn >= sizeof(file_path)) return 0;
+    int f = open(file_path, O_RDONLY);
+    if (f < 0) return 0;
+    char body[32768];
+    size_t used = 0;
+    while (used < sizeof(body)) {
+        ssize_t n = read(f, body + used, sizeof(body) - used);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { close(f); return 0; }
+        if (n == 0) break;
+        used += (size_t)n;
+    }
+    close(f);
+    if (used == sizeof(body)) return 0;
+    http_send_bytes(fd, ctype, body, used);
+    return 1;
+}
+
 static int http_do_action(const char *act)
 {
     if (strcmp(act, "feed") == 0) { do_feed(); return 0; }
@@ -1297,7 +1451,11 @@ static void http_handle_client(int c)
     }
 
     if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-        http_send(c, 200, "text/html; charset=utf-8", PAGE);
+        if (!http_serve_web_file(c, path))
+            http_send(c, 200, "text/html; charset=utf-8", PAGE);
+    } else if (strncmp(path, "/assets/", 8) == 0) {
+        if (!http_serve_web_file(c, path))
+            http_send(c, 404, "text/plain; charset=utf-8", "not found");
     } else if (strcmp(path, "/state") == 0) {
         char body[512];
         build_state_json(body, sizeof(body));
@@ -1557,7 +1715,7 @@ static int run_reset(void)
 
 static void usage(const char *argv0)
 {
-    printf("usage: %s [--debug] [--minutes N] [--nohttp] [--status] [--reset]\n"
+    printf("usage: %s [--debug] [--freeze-frame] [--panel-rgb565-be|--panel-bgr565] [--minutes N] [--nohttp] [--status] [--reset]\n"
            "       %s --restore FILE\n", argv0, argv0);
 }
 
@@ -1572,6 +1730,9 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--debug") == 0) g_debug = 1;
+        else if (strcmp(argv[i], "--freeze-frame") == 0) g_freeze_sprite_frame = 1;
+        else if (strcmp(argv[i], "--panel-rgb565-be") == 0) g_panel_rgb565_be = 1;
+        else if (strcmp(argv[i], "--panel-bgr565") == 0) g_panel_rgb565_be = 0;
         else if (strcmp(argv[i], "--nohttp") == 0) g_nohttp = 1;
         else if (strcmp(argv[i], "--status") == 0) return run_status();
         else if (strcmp(argv[i], "--reset") == 0) return run_reset();

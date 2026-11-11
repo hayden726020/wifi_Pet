@@ -22,6 +22,14 @@ petcard/petcard_sim
 *.dis
 *.tgz
 
+# PetCard companion sprite frames supplied for the local phone UI.
+!petcard/assets/happy_*.png
+!petcard/assets/hungry_*.png
+!petcard/assets/sleepy_*.png
+!petcard/assets/grumpy_*.png
+!petcard/assets/sleep_*.png
+!petcard/assets/pet_emotions_64_sheet.png
+
 # OS junk
 .DS_Store
 Thumbs.db

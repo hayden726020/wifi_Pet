@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f3ea">
+  <title>Momo · PetCard</title>
+  <style>
+    :root{color-scheme:light;--ink:#263c36;--muted:#7a8c80;--paper:#f5f3ea;--card:#fffef8;--mint:#b8e4ca;--green:#346b53;--line:#e5e8dc;--shadow:0 18px 55px #314b3512}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
+    main{width:min(100% - 28px,440px);margin:0 auto;padding:calc(22px + env(safe-area-inset-top)) 0 calc(24px + env(safe-area-inset-bottom))}
+    header{display:flex;align-items:center;justify-content:space-between;margin:2px 2px 18px}.brand{display:flex;align-items:center;gap:10px}.brand-mark{display:grid;place-items:center;width:38px;height:38px;border-radius:14px;background:#d9efdc;color:var(--green);font-size:20px}.brand-name{font-weight:800;letter-spacing:.01em}.brand-kicker{font-size:11px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}.connection{display:flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--line);border-radius:999px;background:#ffffff9c;font-size:12px;color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;background:#d7a45d}.connection.online .dot{background:#5da875;box-shadow:0 0 0 3px #5da87520}
+    .hero{position:relative;overflow:hidden;min-height:310px;padding:21px 20px 15px;border-radius:30px;background:linear-gradient(145deg,#d9efd9,#c5e7d1 65%,#b8ddc8);box-shadow:var(--shadow)}.hero:before,.hero:after{content:"";position:absolute;border-radius:50%;background:#ffffff25;pointer-events:none}.hero:before{width:240px;height:240px;right:-70px;top:-105px}.hero:after{width:150px;height:150px;left:-80px;bottom:-75px}.hero-top{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-start}.hello{font-size:12px;color:#557664;letter-spacing:.08em}.pet-name{margin:3px 0 0;font-size:25px;line-height:1.15;font-weight:850;letter-spacing:-.03em}.stage{padding:6px 10px;border:1px solid #ffffff80;border-radius:999px;background:#ffffff70;color:#52715d;font-size:11px;font-weight:700}.pet-wrap{position:relative;z-index:1;height:192px;display:grid;place-items:center}.pet{width:168px;height:168px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 6px #52715d25);animation:bob 2.4s ease-in-out infinite}.spark{position:absolute;color:#fff9d4;font-size:19px;animation:twinkle 2s ease-in-out infinite}.spark.one{top:31px;left:22%}.spark.two{right:19%;bottom:24px;animation-delay:.8s}.ground{position:absolute;bottom:19px;left:50%;width:150px;height:18px;transform:translateX(-50%);border-radius:50%;background:#6da78629}.pet-caption{position:relative;z-index:1;text-align:center;color:#52715d;font-size:13px;min-height:20px}
+    .section-title{display:flex;align-items:center;justify-content:space-between;margin:23px 3px 11px}.section-title h2{margin:0;font-size:14px;font-weight:800}.section-title span{font-size:11px;color:var(--muted)}.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{padding:13px 14px 12px;border:1px solid #eceee5;border-radius:18px;background:var(--card);box-shadow:0 5px 18px #314b3508}.stat-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;font-size:12px;color:var(--muted)}.stat-icon{font-size:15px;margin-right:5px}.stat-value{font-size:13px;color:var(--ink);font-weight:800;font-variant-numeric:tabular-nums}.track{height:7px;border-radius:99px;background:#edf0e8;overflow:hidden}.fill{width:0;height:100%;border-radius:inherit;background:#80bd91;transition:width .45s ease}.stat:nth-child(2) .fill{background:#e6a58f}.stat:nth-child(3) .fill{background:#83b9c5}.stat:nth-child(4) .fill{background:#c7ad70}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.action{min-height:58px;display:flex;align-items:center;gap:11px;padding:10px 14px;border:1px solid #e7eadd;border-radius:18px;background:var(--card);color:var(--ink);font:inherit;text-align:left;box-shadow:0 5px 18px #314b3508;cursor:pointer;transition:transform .15s,border-color .15s,background .15s}.action:active{transform:scale(.98);background:#f0f7ed}.action:focus-visible{outline:3px solid #78ae8c;outline-offset:2px}.action:disabled{opacity:.55;cursor:wait}.action .emoji{display:grid;place-items:center;width:34px;height:34px;border-radius:12px;background:#eff5e9;font-size:17px}.action strong{display:block;font-size:13px}.action small{display:block;margin-top:1px;color:var(--muted);font-size:10px}.action.sleep{grid-column:1/-1;min-height:52px}.action.sleep .emoji{background:#edf1fa}.notice{min-height:23px;margin:13px 4px 0;color:#8b6840;font-size:12px;text-align:center}.footer{margin:13px 4px 0;text-align:center;color:#9aa69b;font-size:10px}.offline{color:#a86756}
+    @keyframes bob{0%,100%{transform:translateY(2px)}50%{transform:translateY(-5px)}}@keyframes twinkle{0%,100%{opacity:.45;transform:scale(.9)}50%{opacity:1;transform:scale(1.12)}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand"><div class="brand-mark" aria-hidden="true">✿</div><div><div class="brand-kicker">PETCARD COMPANION</div><div class="brand-name">和 Momo 一起</div></div></div>
+      <div id="connection" class="connection" role="status" aria-live="polite"><i class="dot"></i><span id="connectionText">正在连接</span></div>
+    </header>
+    <section class="hero" aria-label="宠物状态">
+      <div class="hero-top"><div><div class="hello">今天也来陪陪你</div><h1 class="pet-name">Momo</h1></div><span id="stage" class="stage">幼年期</span></div>
+      <div class="pet-wrap"><span class="spark one" aria-hidden="true">✦</span><span class="spark two" aria-hidden="true">✧</span><div class="ground"></div><img id="pet" class="pet" src="/assets/happy_1.png" alt="Momo 开心地待机"></div>
+      <div id="caption" class="pet-caption">Momo 正在等你</div>
+    </section>
+    <section aria-labelledby="statsTitle"><div class="section-title"><h2 id="statsTitle">Momo 的状态</h2><span id="age">相遇第 0 分钟</span></div>
+      <div class="stats">
+        <div class="stat"><div class="stat-head"><span><span class="stat-icon" aria-hidden="true">🍚</span>饱食</span><b id="satietyValue" class="stat-value">--</b></div><div class="track"><div id="satiety" class="fill"></div></div></div>
+        <div class="stat"><div class="stat-head"><span><span class="stat-icon" aria-hidden="true">♡</span>心情</span><b id="moodValue" class="stat-value">--</b></div><div class="track"><div id="mood" class="fill"></div></div></div>
+        <div class="stat"><div class="stat-head"><span><span class="stat-icon" aria-hidden="true">⚡</span>精力</span><b id="energyValue" class="stat-value">--</b></div><div class="track"><div id="energy" class="fill"></div></div></div>
+        <div class="stat"><div class="stat-head"><span><span class="stat-icon" aria-hidden="true">✿</span>亲密</span><b id="intimacyValue" class="stat-value">--</b></div><div class="track"><div id="intimacy" class="fill"></div></div></div>
+      </div>
+    </section>
+    <section aria-labelledby="actionsTitle"><div class="section-title"><h2 id="actionsTitle">和 Momo 互动</h2><span>每一次陪伴都算数</span></div>
+      <div class="actions">
+        <button class="action" data-action="feed"><span class="emoji" aria-hidden="true">🍓</span><span><strong>喂点好吃的</strong><small>补充饱食与心情</small></span></button>
+        <button class="action" data-action="play"><span class="emoji" aria-hidden="true">🧶</span><span><strong>一起玩耍</strong><small>玩一会儿吧</small></span></button>
+        <button class="action" data-action="pet"><span class="emoji" aria-hidden="true">🤍</span><span><strong>摸摸 Momo</strong><small>给它一点鼓励</small></span></button>
+        <button id="sleepButton" class="action sleep" data-action="sleep"><span class="emoji" aria-hidden="true">☾</span><span><strong id="sleepLabel">准备睡觉</strong><small>让 Momo 好好休息</small></span></button>
+      </div>
+      <p id="notice" class="notice" aria-live="polite"></p>
+    </section>
+    <p class="footer">通过设备本地 Wi-Fi 连接 · 互动数据保存在 PetCard</p>
+  </main>
+  <script>
+    const $=id=>document.getElementById(id), stages=['幼年期','成长期','少年期','成熟期'];
+    let currentEmotion='happy', frame=0, state=null, busy=false;
+    function setStat(name,value){$(name).style.width=`${Math.max(0,Math.min(100,value))}%`;$(`${name}Value`).textContent=`${value}%`;}
+    function emotionFor(s){if(s.sleeping)return ['sleep','Momo 正在做甜甜的梦'];if(s.hunger>=65)return ['hungry','Momo 有点饿了'];if(s.energy<30)return ['sleepy','Momo 看起来有些困倦'];if(s.mood<35)return ['grumpy','Momo 想要一点安慰'];return ['happy','Momo 正在等你'];}
+    function applyState(s){state=s;const [emotion,caption]=emotionFor(s);if(emotion!==currentEmotion){currentEmotion=emotion;frame=0;}
+      $('stage').textContent=stages[s.stage]||'幼年期';$('age').textContent=`相遇第 ${s.age_min} 分钟`;
+      setStat('satiety',s.satiety);setStat('mood',s.mood);setStat('energy',s.energy);setStat('intimacy',s.intimacy);
+      $('caption').textContent=caption;$('sleepLabel').textContent=s.sleeping?'叫醒 Momo':'准备睡觉';$('pet').alt=`Momo ${caption}`;
+      $('notice').textContent=s.msg||'';}
+    async function refresh(){try{const r=await fetch('/state',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();applyState(s);$('connection').classList.add('online');$('connectionText').textContent='设备已连接';$('notice').classList.remove('offline');}
+      catch(e){$('connection').classList.remove('online');$('connectionText').textContent='等待设备';$('notice').textContent='请确认手机仍连接 PetCard 的 Wi-Fi';$('notice').classList.add('offline');}}
+    async function act(action){if(busy)return;busy=true;document.querySelectorAll('.action').forEach(b=>b.disabled=true);$('notice').textContent='正在告诉 Momo…';
+      try{const r=await fetch(`/action?do=${encodeURIComponent(action)}`,{cache:'no-store'});const s=await r.json();applyState(s);if(!r.ok)throw Error(s.msg||'操作没有完成');}
+      catch(e){$('notice').textContent='暂时没有收到设备回应，请稍后再试';$('notice').classList.add('offline');}
+      finally{busy=false;document.querySelectorAll('.action').forEach(b=>b.disabled=false);refresh();}}
+    document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',()=>act(button.dataset.action)));
+    function animate(){const img=$('pet');img.src=`/assets/${currentEmotion}_${frame+1}.png?v=2`;frame=(frame+1)%4;}
+    refresh();animate();setInterval(refresh,2000);setInterval(animate,220);
+  </script>
+</body>
+</html>

@@ -48,6 +48,40 @@ static void scenario(const char *dir, const char *name, int stage,
     dump_raw(dir, name);
 }
 
+static void test_sprite_assets(void)
+{
+    static const int emotions[] = {EMO_HAPPY, EMO_HUNGRY, EMO_TIRED, EMO_ANGRY, EMO_SLEEP};
+    static const char *const names[] = {"happy", "hungry", "sleepy", "grumpy", "sleep"};
+    for (size_t i = 0; i < sizeof(emotions) / sizeof(emotions[0]); i++) {
+        g_sprite_type = -1;
+        g_sprite_loaded = 0;
+        fill_rect(0, 0, W, H, C_BG);
+        draw_pet(emotions[i], g_sim_now);
+        char check_name[64];
+        snprintf(check_name, sizeof(check_name), "%s sprite set loads and draws", names[i]);
+        int pixels = 0;
+        for (int y = 24; y < 104; y++)
+            for (int x = 24; x < 104; x++)
+                if (g_canvas[y * W + x] != C_BG) pixels++;
+        check(g_sprite_loaded && pixels > 500, check_name);
+    }
+    check(memcmp(g_sprite_frames[0], g_sprite_frames[1], SPRITE_FRAME_BYTES) != 0,
+          "sprite animation frames differ");
+    check(sprite_scale_for_stage(3) > sprite_scale_for_stage(0),
+          "sprite grows with pet stage");
+
+    uint16_t frozen_frame[W * H];
+    g_freeze_sprite_frame = 1;
+    fill_rect(0, 0, W, H, C_BG);
+    draw_pet(EMO_HUNGRY, g_sim_now);
+    memcpy(frozen_frame, g_canvas, sizeof(frozen_frame));
+    fill_rect(0, 0, W, H, C_BG);
+    draw_pet(EMO_HUNGRY, g_sim_now + 220);
+    check(memcmp(frozen_frame, g_canvas, sizeof(frozen_frame)) == 0,
+          "freeze option keeps the same sprite frame over time");
+    g_freeze_sprite_frame = 0;
+}
+
 static void reset_for_test(void)
 {
     state_defaults();
@@ -78,6 +112,21 @@ int main(int argc, char **argv)
     scenario(dir, "play", 1, 3000, 8000, 6000, 3000, 0, EMO_PLAY, "FUN!");
     scenario(dir, "pet", 1, 3000, 8000, 7000, 5000, 0, EMO_PET, "HEHE~");
     scenario(dir, "adult", 3, 3000, 8000, 8000, 9000, 0, EMO_HAPPY, NULL);
+    test_sprite_assets();
+
+    check(g_panel_rgb565_be == 1, "RGB565 big-endian panel format is default");
+    check(encode_panel_pixel(RGB(255, 0, 0)) == 0x00f8 &&
+          encode_panel_pixel(RGB(0, 255, 0)) == 0xe007 &&
+          encode_panel_pixel(RGB(0, 0, 255)) == 0x1f00,
+          "RGB565 panel emits MSB-first primary colors");
+    check(encode_panel_pixel(C_BG) == 0x6308 &&
+          encode_panel_pixel(RGB(128, 128, 128)) == 0x1084 &&
+          encode_panel_pixel(RGB(0, 0, 0)) == 0 &&
+          encode_panel_pixel(RGB(255, 255, 255)) == 0xffff,
+          "RGB565 panel preserves dark background and neutral tones");
+    g_panel_rgb565_be = 0;
+    check(encode_panel_pixel(C_BG) == 0x1841,
+          "legacy panel encoding remains available for comparison");
 
     reset_for_test();
     int h0 = g_state.hunger;

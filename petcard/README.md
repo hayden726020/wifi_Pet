@@ -1,6 +1,6 @@
 # PetCore（设备端）
 
-PetCard V1 的 ZX297520V3 设备端程序：宠物显示、按键交互、本地养成、存档，以及给手机用的本地 HTTP 控制页。复用了已验证的 `sleepout/blgon + 整帧 fb 写入 + B-R-G 颜色转换` 路径。
+PetCard V1 的 ZX297520V3 设备端程序：宠物显示、按键交互、本地养成、存档，以及给手机用的本地 HTTP 控制页。显示使用 `sleepout/blgon + 整帧 fb mmap 写入`；面板像素格式可用启动参数选择并需实机确认。
 
 ## 构建
 
@@ -17,6 +17,15 @@ cd petcard
 - `ui_hold`：只挂起原厂 UI 线程的 ptrace 小工具，必须与 `petcard.sh` 一起部署。
 - `petcard_sim`：主机模拟器，渲染各状态帧并跑逻辑自测。
 
+屏幕也会使用 `assets/` 中的 64×64 透明表情帧，程序在设备端将其合成到 RGB565 画布，再沿用 fb mmap 刷新。清理 4×5 表情图并重新生成运行素材：
+
+```sh
+python import_sprite_sheet.py assets/pet_emotions_64_sheet.png
+python prepare_sprites.py
+```
+
+两条命令需要安装 Pillow；屏幕端使用随仓库提供的 `.rgba` 文件，不依赖设备端 PNG 解码器。
+
 ## 部署
 
 ```sh
@@ -24,6 +33,10 @@ adb push petcard /tmp/petcard
 adb push ui_hold /tmp/ui_hold
 adb push petcard.sh /tmp/petcard.sh
 adb push resume.sh /tmp/petcard_resume.sh
+adb shell 'mkdir -p /tmp/petcard-www/assets'
+adb push companion/index.html /tmp/petcard-www/index.html
+adb push assets/happy_1.png assets/happy_2.png assets/happy_3.png assets/happy_4.png assets/hungry_1.png assets/hungry_2.png assets/hungry_3.png assets/hungry_4.png assets/sleepy_1.png assets/sleepy_2.png assets/sleepy_3.png assets/sleepy_4.png assets/grumpy_1.png assets/grumpy_2.png assets/grumpy_3.png assets/grumpy_4.png assets/sleep_1.png assets/sleep_2.png assets/sleep_3.png assets/sleep_4.png /tmp/petcard-www/assets/
+adb push assets/*.rgba /tmp/petcard-www/assets/
 adb shell 'chmod 755 /tmp/petcard /tmp/ui_hold /tmp/petcard.sh /tmp/petcard_resume.sh'
 ```
 
@@ -32,6 +45,8 @@ Git Bash 下 `adb push` 的远端绝对路径会被 MSYS 改写；使用 Windows
 ```sh
 MSYS_NO_PATHCONV=1 adb push "D:/Pet_wifi/petcard/petcard" /tmp/petcard
 ```
+
+手机 Companion 页面由 PetCore 从 `/tmp/petcard-www` 提供。每次设备重启后，按上面的步骤推送页面、20 帧 PNG 和 20 个 RGBA 屏幕帧（目录位于 tmpfs）。页面使用现有 `/state`、`/action` 接口，不需要互联网；服务端只会公开 `/assets/` 下列出的 PNG 帧。屏幕直接使用 RGBA 帧素材；缺少素材时保留程序绘制的宠物作为回退。
 
 `/tmp` 是 tmpfs，设备重启后清空，需要重新 push。
 
@@ -66,6 +81,8 @@ adb shell '/tmp/petcard.sh --debug'
 http://192.168.0.1:8420/
 ```
 
+页面是面向手机的 Companion 控制界面，按设备情绪播放 `assets/` 中的四帧宠物动画，并直接调用本地 `/state`、`/action`。只使用设备热点，不请求云端；设备重启后需按部署步骤重新推送页面和动画帧。
+
 页面显示饱食/心情/精力，提供喂食、玩耍、摸摸、睡觉/唤醒按钮。只用本地链路，不需要付费上网，也不经过运营商流量。
 
 HTTP 接口（JSON）：
@@ -89,6 +106,9 @@ HTTP 接口（JSON）：
 ## 调试
 
 - `petcard --debug`：打印启动状态、HTTP 动作、每 30 帧的整帧写入耗时。
+- `petcard --freeze-frame`：固定人物动画帧，供屏幕诊断。
+- `petcard`：默认按 RGB565 高字节优先输出，实物屏确认该格式可清除色块。
+- `petcard --panel-bgr565`：回退到原 B-R-G 映射。
 - `petcard --status`：读取存档并输出 JSON，不打开屏幕/按键。
 - `petcard --reset`：删除存档。
 - `petcard --restore FILE`：把 32768 B 的面板快照写回 fb（会先唤醒面板）。
