@@ -94,6 +94,16 @@ static void reset_for_test(void)
     g_selected = ACT_FEED;
     g_state.sleeping = 0;
     g_msg[0] = '\0';
+    g_key_down = 0;
+    g_press_at = 0;
+    g_single_pending = 0;
+    g_single_deadline = 0;
+    g_double_candidate = 0;
+    g_shutdown_confirm = 0;
+    g_shutdown_trigger_held = 0;
+    g_poweroff_requested = 0;
+    g_poweroff_started = 0;
+    g_shutdown_confirm_deadline = 0;
 }
 
 int main(int argc, char **argv)
@@ -112,6 +122,20 @@ int main(int argc, char **argv)
     scenario(dir, "play", 1, 3000, 8000, 6000, 3000, 0, EMO_PLAY, "FUN!");
     scenario(dir, "pet", 1, 3000, 8000, 7000, 5000, 0, EMO_PET, "HEHE~");
     scenario(dir, "adult", 3, 3000, 8000, 8000, 9000, 0, EMO_HAPPY, NULL);
+
+    reset_for_test();
+    g_shutdown_confirm = 1;
+    render_frame(g_sim_now);
+    dump_raw(dir, "shutdown-confirm");
+    uint16_t confirm_frame[W * H];
+    memcpy(confirm_frame, g_canvas, sizeof(confirm_frame));
+    g_shutdown_confirm = 0;
+    g_poweroff_requested = 1;
+    render_frame(g_sim_now);
+    dump_raw(dir, "shutdown");
+    check(memcmp(confirm_frame, g_canvas, sizeof(confirm_frame)) != 0,
+          "shutdown confirmation and shutdown screens render differently");
+
     test_sprite_assets();
 
     check(g_panel_rgb565_be == 1, "RGB565 big-endian panel format is default");
@@ -210,6 +234,44 @@ int main(int argc, char **argv)
     g_sim_now += LONG_MS + 100;
     on_key_event(0);
     check(g_state.hunger < h0, "long press feeds");
+
+    reset_for_test();
+    g_sim_now += 1000;
+    h0 = g_state.hunger;
+    on_key_event(1);
+    g_sim_now += POWER_OFF_HOLD_MS;
+    tick_button(g_sim_now);
+    check(g_shutdown_confirm && !g_poweroff_requested && g_state.hunger == h0,
+          "five-second hold opens shutdown confirmation without pet action");
+    on_key_event(0);
+    check(g_shutdown_confirm && !g_poweroff_requested,
+          "release after opening confirmation does not confirm shutdown");
+    on_key_event(1);
+    g_sim_now += 100;
+    on_key_event(0);
+    check(!g_shutdown_confirm && g_poweroff_requested && g_state.hunger == h0,
+          "confirmation tap requests shutdown without pet action");
+
+    reset_for_test();
+    on_key_event(1);
+    g_sim_now += POWER_OFF_HOLD_MS;
+    tick_button(g_sim_now);
+    on_key_event(0);
+    on_key_event(1);
+    g_sim_now += LONG_MS + 10;
+    on_key_event(0);
+    check(!g_shutdown_confirm && !g_poweroff_requested,
+          "long hold cancels shutdown confirmation");
+
+    reset_for_test();
+    on_key_event(1);
+    g_sim_now += POWER_OFF_HOLD_MS;
+    tick_button(g_sim_now);
+    on_key_event(0);
+    g_sim_now += POWER_CONFIRM_TIMEOUT_MS + 1;
+    tick_button(g_sim_now);
+    check(!g_shutdown_confirm && !g_poweroff_requested,
+          "shutdown confirmation expires without powering off");
 
     reset_for_test();
     i0 = g_state.intimacy;

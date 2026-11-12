@@ -29,6 +29,7 @@ petcard/petcard_sim
 !petcard/assets/grumpy_*.png
 !petcard/assets/sleep_*.png
 !petcard/assets/pet_emotions_64_sheet.png
+!petcard/assets/boot/*.png
 
 # OS junk
 .DS_Store

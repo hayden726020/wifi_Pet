@@ -28,6 +28,24 @@ python prepare_sprites.py
 
 ## 部署
 
+### 开机接管（阶段 3）
+
+`install_startup.sh` 用来让 PetCard 随设备启动：`/etc/rc` 在 `fs_check` 和设备节点创建后，先把 PetCard 启动/关机动画绑定到原厂 MMI 动画路径并预检 userdata 网页素材，再启动 `autostart.sh`。启动脚本等待 PetCard 首个完整 framebuffer 帧写成功后，才继续执行 `zte_mifi`；管理器随后挂起 MMI/按键 UI 线程。若 PetCard 未在 2 秒内就绪，系统继续原启动流程，管理器会在挂起 MMI 后回退启动 PetCard。原厂网络、看门狗和 USB/ADB 服务仍由 `/etc/rc` 启动。原厂 MMI 程序仍在固件中运行，不是固件删除或完整替换。虽然设备日志确认 PetCard 首帧先于 `zte_mifi` 且 MMI 动画资源被 PetCard 覆盖，用户仍报告约 5–7 秒原厂 Power On，因此可见启动画面的来源尚未定位。当前工作流不写 MTD/NV/bootloader。
+
+```sh
+/mnt/userdata/petcard/install_startup.sh
+```
+
+脚本会先把原始 `/etc/rc` 和 `/etc/inittab` 备份到 `/mnt/userdata/petcard/rollback/`，再将 `/etc/rc` 改为可写、插入启动钩子并恢复只读。回滚：
+
+```sh
+/mnt/userdata/petcard/rollback_startup.sh
+```
+
+只回滚启动入口，不会删除 `/mnt/userdata/petcard` 中的程序、素材或存档。固件根分区保持只读；此流程不写 MTD/NV/bootloader。
+
+设备端 `prepare_boot.sh`、`autostart.sh`、`install_startup.sh`、`rollback_startup.sh` 和 `generate_boot_assets.py` 随仓库 `petcard/` 提供。启动素材在 `assets/boot/`，由生成脚本从已有宠物帧生成。
+
 ```sh
 adb push petcard /tmp/petcard
 adb push ui_hold /tmp/ui_hold
@@ -72,6 +90,9 @@ adb shell '/tmp/petcard.sh --debug'
 - 长按（≥650 ms）：执行当前动作。
 - 双击（330 ms 窗口）：摸摸。
 - 睡觉时任意按键唤醒。
+- 按住 5 秒：显示 PetCard「是否关机？」确认页；松开后再短按一次确认关机。
+- 确认页上再次长按或等待 15 秒：取消关机并回到宠物页面。
+- 关机确认页的单击不会执行喂食/玩耍/睡觉等宠物操作。
 
 ## 手机本地控制页
 

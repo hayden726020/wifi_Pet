@@ -1,7 +1,8 @@
 /*
  * PetCard V1 device core for adol D623+ (ZX297520V3, 128x128 B-R-G panel).
  * Display: full-frame canvas -> B[15:11] R[10:5] G[4:0] -> write(fb).
- * Input: only key, KEY_POWER 116. Short=cycle action, long=do action, double=pet.
+ * Input: only key, KEY_POWER 116. Short=cycle action, long=do action, double=pet,
+ *        five-second hold opens a shutdown confirmation.
  * Link: local HTTP on port 8420, served over the stock local AP (no uplink).
  */
 #define _GNU_SOURCE
@@ -43,6 +44,8 @@
 #define KEY_POWER 116
 #define LONG_MS 650
 #define DOUBLE_MS 330
+#define POWER_OFF_HOLD_MS 5000
+#define POWER_CONFIRM_TIMEOUT_MS 15000
 
 #define PET_MAGIC 0x43544550u
 #define PET_VERSION 1
@@ -203,6 +206,11 @@ static long long g_press_at = 0;
 static int g_single_pending = 0;
 static long long g_single_deadline = 0;
 static int g_double_candidate = 0;
+static int g_shutdown_confirm = 0;
+static int g_shutdown_trigger_held = 0;
+static int g_poweroff_requested = 0;
+static int g_poweroff_started = 0;
+static long long g_shutdown_confirm_deadline = 0;
 
 static long long g_next_blink = 0;
 static long long g_blink_until = 0;
@@ -225,6 +233,7 @@ static int g_lcd_warned = 0;
 static int g_flush_count = 0;
 static long long g_flush_us_sum = 0;
 static long long g_flush_us_max = 0;
+static int g_boot_ready_signaled = 0;
 
 #ifndef PET_SIM
 static long long now_ms(void)
@@ -1043,19 +1052,25 @@ static void draw_hint(long long now)
 {
     fill_rect(0, 108, W, H - 108, C_BG);
 
+    if (g_shutdown_confirm) {
+        draw_text_center(109, "TAP TO POWER OFF", 1, C_YELLOW);
+        draw_text_center(120, "HOLD TO CANCEL", 1, C_DIM);
+        return;
+    }
+
     if (g_state.sleeping) {
         draw_text_center(109, "SLEEPING", 1, C_TEXT);
         draw_text_center(118, "PRESS TO WAKE", 1, C_DIM);
     } else {
         draw_text_center(109, ACTION_NAMES[clamp_int(g_selected, 0, ACT_COUNT - 1)], 2, C_YELLOW);
-        draw_text_center(120, "HOLD OK  2X PET", 1, C_DIM);
+        draw_text_center(120, "HOLD OK  2X PET  5S OFF", 1, C_DIM);
     }
 
     if (g_key_down) {
         long long held = now - g_press_at;
         if (held < 0) held = 0;
-        if (held > LONG_MS) held = LONG_MS;
-        int bw = (W - 28) * (int)held / LONG_MS;
+        if (held > POWER_OFF_HOLD_MS) held = POWER_OFF_HOLD_MS;
+        int bw = (W - 28) * (int)held / POWER_OFF_HOLD_MS;
         fill_rect(14, 125, W - 28, 3, C_BAR_BG);
         fill_rect(14, 125, bw, 3, C_YELLOW);
     }
@@ -1064,6 +1079,23 @@ static void draw_hint(long long now)
 static void render_frame(long long now)
 {
     fill_rect(0, 0, W, H, C_BG);
+
+    if (g_poweroff_requested) {
+        draw_text_center(14, "GOOD NIGHT", 2, C_YELLOW);
+        draw_pet(EMO_SLEEP, now);
+        draw_text_center(112, "PETCARD", 1, C_DIM);
+        g_dirty = 1;
+        return;
+    }
+
+    if (g_shutdown_confirm) {
+        draw_text_center(12, "POWER OFF?", 2, C_TEXT);
+        draw_pet(EMO_IDLE, now);
+        draw_hint(now);
+        g_dirty = 1;
+        return;
+    }
+
     draw_hud();
 
     int emo = current_emotion(now);
@@ -1177,6 +1209,13 @@ static int flush_fb(void)
 
     if (n == (ssize_t)FB_BYTES) {
         g_dirty = 0;
+        if (!g_boot_ready_signaled) {
+            int ready_fd = open("/tmp/petcard-early-ready", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (ready_fd >= 0) {
+                close(ready_fd);
+                g_boot_ready_signaled = 1;
+            }
+        }
     } else {
         lcd_wake();
         if (!g_lcd_warned) {
@@ -1534,10 +1573,19 @@ static void http_poll(void)
 static void on_key_event(int value)
 {
     long long now = now_ms();
+    if (g_poweroff_requested) return;
+
     if (value == 1) {
         if (g_key_down) return;
         g_key_down = 1;
         g_press_at = now;
+        if (g_shutdown_confirm) {
+            g_single_pending = 0;
+            g_double_candidate = 0;
+            g_force_render = 1;
+            g_dirty = 1;
+            return;
+        }
         if (g_single_pending) {
             g_single_pending = 0;
             g_double_candidate = 1;
@@ -1545,10 +1593,35 @@ static void on_key_event(int value)
         g_dirty = 1;
         g_force_render = 1;
     } else if (value == 0) {
+        if (g_shutdown_trigger_held) {
+            g_shutdown_trigger_held = 0;
+            return;
+        }
         if (!g_key_down) return;
         g_key_down = 0;
         long long dur = now - g_press_at;
-        if (dur >= LONG_MS) {
+        if (g_shutdown_confirm) {
+            if (dur < LONG_MS) {
+                g_shutdown_confirm = 0;
+                g_poweroff_requested = 1;
+                g_single_pending = 0;
+                g_double_candidate = 0;
+                g_dirty = 1;
+                g_force_render = 1;
+            } else {
+                g_shutdown_confirm = 0;
+                set_msg("CANCELLED", 1400);
+                g_dirty = 1;
+                g_force_render = 1;
+            }
+        } else if (dur >= POWER_OFF_HOLD_MS) {
+            g_shutdown_confirm = 1;
+            g_shutdown_confirm_deadline = now + POWER_CONFIRM_TIMEOUT_MS;
+            g_single_pending = 0;
+            g_double_candidate = 0;
+            g_dirty = 1;
+            g_force_render = 1;
+        } else if (dur >= LONG_MS) {
             g_single_pending = 0;
             g_double_candidate = 0;
             do_long_press();
@@ -1565,6 +1638,25 @@ static void on_key_event(int value)
 
 static void tick_button(long long now)
 {
+    if (g_key_down && !g_shutdown_confirm &&
+        now - g_press_at >= POWER_OFF_HOLD_MS) {
+        g_key_down = 0;
+        g_shutdown_trigger_held = 1;
+        g_shutdown_confirm = 1;
+        g_shutdown_confirm_deadline = now + POWER_CONFIRM_TIMEOUT_MS;
+        g_single_pending = 0;
+        g_double_candidate = 0;
+        g_dirty = 1;
+        g_force_render = 1;
+    }
+
+    if (g_shutdown_confirm && !g_key_down && now >= g_shutdown_confirm_deadline) {
+        g_shutdown_confirm = 0;
+        set_msg("CANCELLED", 1400);
+        g_dirty = 1;
+        g_force_render = 1;
+    }
+
     if (g_single_pending && now >= g_single_deadline) {
         g_single_pending = 0;
         do_short_press();
@@ -1586,6 +1678,7 @@ static void drain_events(void)
         if (ev.type == EV_SYN) {
             if (ev.code == SYN_DROPPED) {
                 g_key_down = 0;
+                g_shutdown_trigger_held = 0;
                 g_single_pending = 0;
                 g_double_candidate = 0;
             }
@@ -1665,6 +1758,17 @@ static void run_loop(void)
 
         if (g_dirty)
             flush_fb();
+
+        if (g_poweroff_requested && !g_poweroff_started) {
+            g_poweroff_started = 1;
+            save_state();
+            usleep(1500000);
+            execl("/sbin/poweroff", "poweroff", (char *)NULL);
+            g_poweroff_started = 0;
+            g_poweroff_requested = 0;
+            set_msg("POWER OFF FAILED", 3000);
+            g_force_render = 1;
+        }
 
         if (g_state_dirty && now - g_last_save >= 120000)
             save_state();
