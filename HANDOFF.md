@@ -1,8 +1,26 @@
 # D623+ / PetCard V1 交接
 
+## 最新状态：2026-11-12 阶段 3 开关机画面排查与交接
+
+- 用户确认目标：启动进入 PetCard、隐藏原厂 UI，同时保留联网/看门狗/USB ADB 救援；启动与关机页采用 PetCard 画面。关机操作确认：按住电源键 5 秒显示「是否关机？」；松开后再短按执行；确认页再次长按或 15 秒超时取消。
+- 由于 `zte_mifi` 是 MMI、联网与看门狗共用的单体进程，不能整体替换或冻结。当前通过 `ui_hold` 挂起 MMI/按键 UI 线程，并保留原厂主进程和网络服务。固件内原厂 UI 组件仍存在，当前方案隐藏它们，不是从固件中物理删除。
+- 用户最初反馈关机/开机时原厂 UI 叠加乱码；之后确认乱码已消失。用户最新确认的顺序是：PetCard 关机页 → PetCard 开机页 → 原厂 Power On → PetCard 开机页，提示关机后可能发生两次启动/复位；先前认为只是单段早期 Power On 的判断不充分。
+- 第一版把 UI 接管钩子放在 `zte_mifi` 启动行之后，约 10 秒启动 PetCard，但仍留下原厂 Power On 画面。
+- `zte_mifi` 同时承载 MMI、联网和看门狗，因此只挂起 UI 线程并保留主进程。原始 `rc`、`inittab` 备份及 `rollback_startup.sh` 位于 `/mnt/userdata/petcard/rollback/`。未写 MTD/NV/bootloader。
+- 用户已物理触发关机路径，设备随后自动开机；根因未确认。USB-C 外接供电时 sysfs 报 charger online=1、status=Discharging，但该值无法判定是供电唤醒还是平台 poweroff 行为。本轮普通重启只验证提前接管和服务存活，没有再次触发关机。
+- 用户确认设备必须连接 USB-C 供电，且关机后自动启动时线仍连接；外接供电触发启动是可能原因，但尚未证明。本轮没有重复关机。
+- autostart 直接执行 userdata 中的 `ui_hold`/PetCard 二进制，页面和素材通过软链接读取。因前一版后台 manager 仍晚于 `zte_mifi`，最新版把启动钩子移到 `fs_check` 后，并等待 PetCard 首个完整 framebuffer 帧写成功后再继续启动；等待最多 2 秒，超时保留原回退路径。
+- 只读核对确认 `/etc/rc` 在 `zte_mifi` 之前执行启动画面资源挂载；设备日志显示挂载成功，`image_poweron_0.png` 与 PetCard 资源 MD5 相同，MMI 有 `mmi_showPowerOnFrame`、`mmi_startFastPowerOnFrame` 路径。`resource` 分区本地镜像 262144 B 全为 `0xFF`。此前记录的两轮启动中第二轮与 USB 重新插拔时序重叠，无法归因到原关机。设备无 dmesg/logread/last_kmsg/pstore 历史记录，`boot_reason=0` 无法说明复位原因。
+- 最新普通重启日志确认 PetCard PID 668 先于 `zte_mifi` PID 725，首帧握手生效；`ui_hold` 于 08:49:26 挂起 MMI；约 111 秒时服务正常。但用户随后确认原厂 Power On 仍会显示约 5–7 秒，因此首帧握手方案没有解决可见现象。现有证据不能区分是 MMI 启动绘制到线程挂起之间的间隙，还是更早阶段的显示。当前工作区 ADB daemon 启动卡住，无法关联新一轮实时日志。本轮无关机测试或 MTD/NV/bootloader 写入。
+- **当前本地代码基线**：`e42d5dd Checkpoint PetCard startup and shutdown UI`，已提交到本地 `main`，未推送。它包含 5 秒关机确认、PetCard 启/关机 MMI 素材、`/etc/rc` 早期启动与首帧握手、回滚脚本及相关文档。私有固件转储位于 gitignore 的 `work/`，没有纳入提交。
+- `origin/main` 仍为阶段 4 提交 `0959d72 Add Phase 4 Android AI vertical slice`；本地阶段 3 提交尚未推送。
+- 下一轮先恢复电脑与设备的 ADB 数据连接，确认 `adb devices -l` 可返回设备；再采集持久日志 `/mnt/userdata/petcard/autostart.log`、`boot-assets.log`、`install.log`，以及 `/proc/uptime`、`/proc/cmdline`、`/proc/mounts`、`ps`、`/tmp/ui_hold.log` 和 MMI 线程状态。当前工作区 ADB daemon 启动卡住，本轮没有读到新设备快照。
+- 后续验证重点是把用户看到的 5–7 秒 OEM Power On 与 PetCard 首帧、`zte_mifi` 启动、MMI UI 线程挂起三个时间点对应起来。现有日志只证明软件写过首帧及 MMI 后续被挂起，不证明面板当时实际显示的内容。MMI 绘制间隙和更早启动阶段画面都只是待验证假设。
+- 不要对 `zte_mifi` 整进程 SIGSTOP，不要杀 `hostapd`，不要写 MTD/NV/bootloader。下一轮无需再触发关机；先用只读检查和普通启动日志确认问题来源。
+
 ## 最新状态：2026-11-11 阶段 4 Android 首个竖切
 
-- **Git 基线已提交并推送**：`22e4176 Document phase 3 phone acceptance`，推送到 `origin/main`。本次阶段 4 文件仍在工作区，尚未提交/推送。
+- **阶段 4 基线已提交并推送**：`0959d72 Add Phase 4 Android AI vertical slice`。后续阶段 3 本地基线为 `e42d5dd Checkpoint PetCard startup and shutdown UI`，尚未推送到 `origin/main`。
 - 用户配置：DeepSeek `https://api.deepseek.com` / `deepseek-flash`；Key 在 Android Keystore 保护的本机存储；聊天内容允许发给 provider，但 App 内默认需勾选确认；每天最多 ¥5 的 App 内预算 gate；长期记忆默认只存在手机。
 - 新增 `android/` 原生 App 骨架和首个竖切：离线假模型、provider 接口、DeepSeek Chat Completions adapter、严格建议 JSON parser、AES/GCM + Android Keystore KeyStore、请求前预算预留/返回 usage 后结算、本机记忆人工批准/清空、宠物 `/state` 和确认后 `/action` 走设备 Wi‑Fi Network、云 API 走已验证蜂窝 Network。
 - 建议 schema 在 `docs/stage4-ai-suggestion.schema.json`。模型只返回回复、有限情绪/动作枚举和记忆候选，不产生宠物数值；动作执行前二次确认，记忆只在用户勾选后本机保存。
@@ -135,11 +153,11 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 
 ## 下一步
 
-1. 阶段 3 页面验收已完成：手机在设备 AP 下打开 Companion 页并确认视觉与喂食/玩耍/摸摸/睡觉按钮正常；设备日志与状态计数吻合。后续产品决策：是否包装为 Android App、是否需要长连接/WebSocket。
-2. 阶段 4（进行中：首个 Android 竖切已写入）：先解决 Gradle APK 构建环境冲突，再做手机安装验收；之后完善记忆/会话，真实 API 仅由用户在 App 输入 Key 后主动发起。
-3. 阶段 5：安装到 `/mnt/userdata`、开机自启、与 `zte_mifi` 的 UI 线程挂起/恢复自动化；外壳、USB‑C 供电与移动电源测试。
-4. 继续观察 `ui_hold` 的长期稳定性；如果原厂 UI 线程被重启或看门狗策略变化，需要重新评估常驻方案。
-5. 产品决策：BLE 是否硬性要求；若必须，需要重新确认硬件或接受外接方案。
+1. 恢复设备 ADB 连接并读取持久启动日志，核对 Power On 显示窗口与 PetCard 首帧、MMI 启动及 UI 挂起的实际先后。
+2. 若仍无法判定画面来源，添加只读、带时间戳的启动观测，再进行一次普通重启；不要通过关机路径触发测试。
+3. 只在证明 OEM 画面来自 MMI 后，再调整 MMI 线程接管时序；若证据指向 bootloader/更早的固件启动阶段，先做只读来源分析，不写 MTD/NV/bootloader。
+4. Power On 问题解决或明确受限后，再继续阶段 4 Android App 的 Wi‑Fi/蜂窝分流、Key 存储和预算拒绝路径实机验收。真实 API 调用仍需用户主动输入 Key 并点击。
+5. 阶段 5 外壳、移动电源和供电测试尚未开始；BLE 硬件此前未发现。
 
 ## 本次会话证据与指标
 
@@ -153,30 +171,17 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 ## 新对话启动包（可直接粘贴）
 
 ```text
-项目：D:\Pet_wifi（adol D623+ 随身 WiFi 改 PetCard V1）。
-先读：全局/项目 AGENTS.md、HANDOFF.md、.planning/STATE.md、petcard/README.md、
-docs/function-matrix.md、docs/known-issues.md、docs/adr-0001-local-link-and-ui-hold.md。
-当前基线：main 15a4e29（PetCore 阶段1/2 + 本地 HTTP），设备已停回原厂 UI，AP 正常；源码在 petcard/。
+项目：`D:\Pet_wifi`（Adol D623+ / ZX297520V3，PetCard V1）。
+Git：阶段 3 本地实现基线 `e42d5dd`；`origin/main` 为阶段 4 基线 `0959d72`；阶段 3 尚未推送。工作区应在 HANDOFF 文档提交后保持干净。
+先读：`HANDOFF.md` 顶部、`.planning/STATE.md` 顶部、`petcard/README.md` 开机接管章节、`docs/function-matrix.md`；然后检查 `git status`。
 
-硬约束：
-- 不要对 zte_mifi 整进程 SIGSTOP（zte_watchdog 约 10 分钟会重启设备）；用 ui_hold 只挂 UI 线程。
-- 不要杀/重配 hostapd；本地链路 192.168.0.1:8420，不启用 NAT/转发，不使用付费上网。
-- 显示必须 mmap(/dev/fb0) 后写；B-R-G；面板先 sleepout/blgon。
-- 私有固件/镜像/转储在 work/，不得提交/上传；不写凭据。
-- 每次完成按 vibe-coding-project-optimization 的完成清单；实机证据优先。
+当前未解决：用户确认最新早帧版仍有约 5–7 秒原厂 Power On。最新可用普通重启日志：PetCard 首帧 ready 08:49:22，PID 668 早于 `zte_mifi` PID 725，`ui_hold` 于 08:49:26 挂起 MMI；约 111 秒时 PetCard、ADB、hostapd、DHCP/DNS 正常，根 JFFS2 只读，HTTP 状态页/主页 200。以上只证明进程及软件写帧时序，不能证明屏幕实际内容或原厂画面来源。当前 ADB daemon 在工作区启动卡住，尚未取到用户最新启动的现场日志。
 
-待决定/下一步：
-1) 阶段3：手机 Companion 本地页面已实现待实机验收；先完成 /state + /action 与新动画帧验证，再决定 Android App 和长连接/WebSocket。
-2) 阶段5：是否先做 /mnt/userdata 安装 + 开机自启（需处理 zte_mifi/看门狗）。
-3) 阶段4：云端 AI provider/人格/记忆（API key 放手机或代理，不进固件）。
-4) BLE 是否硬性要求；原板未发现 BLE 硬件。
+接手后：先恢复 ADB 数据连接、只读读取 `/mnt/userdata/petcard/autostart.log`、`boot-assets.log`、`install.log`、`/tmp/ui_hold.log`、`/proc/uptime`、`/proc/cmdline`、`/proc/mounts`、相关进程与 MMI 线程；再决定是否加只读时间戳观测并做普通重启。不要再次触发关机做测试。
 
-设备操作：
-- 启动：adb shell '/tmp/petcard.sh'
-- 停止：adb shell 'killall petcard'
-- 异常恢复：adb shell '/tmp/petcard_resume.sh'
-- 运行前确认 zte_mifi 为 S、hostapd 在跑；结束后确认原厂 UI 恢复。
-- 重启后 /tmp 清空：用 petcard/build.sh 重编，再 push petcard/ui_hold/脚本。
+安全边界：不整进程 SIGSTOP `zte_mifi`，不杀 `hostapd`，不启用 NAT/转发或付费流量；显示通过 `/dev/fb0` mmap 写入；不写 MTD、NV、bootloader；`work/` 内固件和转储为私有资料，不提交或上传；真实 AI API 仅在用户主动输入 Key 并确认发送后调用。
+
+若之后需要回滚设备启动钩子：`/mnt/userdata/petcard/rollback_startup.sh`。设备启动入口原件在 `/mnt/userdata/petcard/rollback/`。
 ```
 
 ## 历史基线

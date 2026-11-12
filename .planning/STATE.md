@@ -14,8 +14,8 @@
 - 只读固件审查：`resource` 分区镜像 262144 B 全为 `0xFF`，不是有效的图像载荷；`zte_mifi` 中存在 `mmi_showPowerOnFrame`、`mmi_startFastPowerOnFrame` 及 `/etc_ro/mmi/image_poweron_*.png` 路径。文件级 PetCard 覆盖有效，但用户仍需确认最新普通重启时看到的 OEM Power On 是 MMI 画面还是更早阶段的显示。
 - 本轮未再次触发关机。开关机过渡乱码已由用户报告消失；关机后出现两段启动画面的根因尚未定位，不能仅凭 USB-C 持续连接断定硬件原因。
 - 用户在上一版本上仍看到约 5–7 秒 Power On。普通重启日志发现后台管理器虽提前启动，仍输给 `zte_mifi`；现已改为 `/etc/rc` 等待 PetCard 首个完整 framebuffer 帧成功写入后再启动 `zte_mifi`，等待上限 2 秒并保留原回退。
-- 最新普通重启日志：PetCard 首帧 ready 08:49:22，PID 668 先于 `zte_mifi` PID 725；`ui_hold` 于 08:49:26 挂起 MMI。uptime 约 111 秒时 PetCard、ADB、hostapd、DHCP/DNS 正常，根 JFFS2 只读；Companion `/state` 和主页 HTTP 200。用户随后确认仍会看到约 5–7 秒原厂 Power On，因此首帧先于 MMI 启动并未解决可见启动画面；实际显示时序来源尚未分清，可能是 MMI 启动绘制与接管间隙，也可能是更早阶段的显示，当前证据不能定论。ADB 当前未列出设备，本轮无法补取这次屏幕对应的实时启动日志。
-- **状态**：阶段 3 UI 接管仍在排查；脚本已更新并部署，未提交/推送。阶段 4 Android 任务仍按下文历史状态进行；阶段 5 外壳/供电任务未开始。
+- 最新普通重启日志：PetCard 首帧 ready 08:49:22，PID 668 先于 `zte_mifi` PID 725；`ui_hold` 于 08:49:26 挂起 MMI。uptime 约 111 秒时 PetCard、ADB、hostapd、DHCP/DNS 正常，根 JFFS2 只读；Companion `/state` 和主页 HTTP 200。用户随后确认仍会看到约 5–7 秒原厂 Power On，因此首帧先于 MMI 启动并未解决可见启动画面；实际显示时序来源尚未分清，可能是 MMI 启动绘制与接管间隙，也可能是更早阶段的显示，当前证据不能定论。本轮工作区 ADB daemon 启动卡住，未取到新现场日志。
+- **状态**：阶段 3 UI 接管仍在排查；脚本已更新并部署，阶段 3 改动已提交为本地基线 `e42d5dd`，未推送。阶段 4 Android 任务仍按下文历史状态进行；阶段 5 外壳/供电任务未开始。
 
 ## 最新状态（2026-11-11 手机页面故障排查，覆盖下文历史状态）
 
