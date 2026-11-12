@@ -1,6 +1,45 @@
 # D623+ / PetCard V1 交接
 
-## 当前补充（2026-11-12 阶段4实机验收通过，待提交）
+## 当前补充（2026-11-12 阶段4验收完成，阶段5启动）
+
+- 阶段4收尾已提交：`0002bb9 Complete Phase 4 Android companion acceptance`、`609527e Record Phase 4 acceptance evidence and new baseline`；本交接提交推送后 `origin/main` 同步。
+- 阶段4核心实机验收通过（详见下节）；剩余项已列入阶段5启动包。
+- 设备与手机当前状态、单口 ADB、热点无互联网、软关机 HTTP 静默等现场约束见“阶段5启动包”。
+
+## 阶段5启动包（2026-11-12，新对话直接粘贴）
+
+```text
+项目：`D:\Pet_wifi`（Adol D623+ / ZX297520V3，PetCard V1）。
+Git：`main` 基线为本提交（阶段4收尾+交接）；`origin/main` 已同步；SHA 以 `git log -1` 为准。
+先读：`HANDOFF.md` 顶部、`.planning/STATE.md` 顶部、`.planning/ROADMAP.md` 的“后续阶段 / 阶段5”、`docs/function-matrix.md`、`docs/known-issues.md`；然后 `git status`。
+
+当前现场（2026-11-12）：
+- D623+ 由充电头供电运行；PetCard/管理器/ui_hold 正常，`ui_hold` 只挂 `mmi` 和 `mmihandlemsg` 2 个线程；PetCard 刷新约 21.2 ms；AP `adol-2D5025`（5GHz，密码在设备标签，不写入仓库）。
+- 手机 A024（Android 16 / SDK 36，ADB `00018158R001923`）已装 Companion v0.2.0；连热点时 `/state` 与确认动作正常；今日 App 预算显示 ¥0.0017；本机记忆为空；用户原有 DeepSeek Key 保持不动。
+- 单口 ADB：D623+ 与手机不能同时接电脑。需要设备日志时手机断开、D623+ 接 USB，查完换回充电头；手机接回后再做 App 验证。
+- PetCard 热点无互联网，手机会自动切回有网 Wi‑Fi；系统提示时选“保持连接/不再询问”，必要时手动点 `adol-2D5025`。
+- 软关机期间 PetCard 不轮询 HTTP，Companion 会 timeout；验收 `/state` 前按电源键唤醒。
+
+阶段4已完成（不要重复验收）：v0.2.0 的 `/state`、确认后 `/action`、一次用户授权的真实 DeepSeek 请求（预算 ¥0.00165）、宠物状态上下文、记忆保存/重启/删除/清空、隐私勾选默认关闭、AI 建议不改设备数值；主机单测 23 项全过。
+
+阶段5目标（按优先级）：
+1. 供电与场景：USB-C 充电头/移动电源低负载断电与冷启动、上电自启、反复重启；无电池设备的真实关机/唤醒边界；形成可复现的供电方案。
+2. 外壳：128×128 屏、单键、USB-C 口、散热与走线；先做结构验证件再定稿。
+3. 长稳：小时级 `ui_hold` + HTTP + 看门狗；多次重启；`/mnt/userdata` 空间与存储磨损。
+4. 阶段4收尾缺口：Key 保存/删除按钮、预算拒绝路径真机注入、provider 401/402/429/5xx 错误码；release 签名、`FLAG_SECURE`、edge-to-edge。
+5. 产品决策：BLE 是否硬性（未发现硬件）、记忆是否云同步、软关机是否允许手机远程唤醒。
+
+阶段5验收建议：
+- 长稳：连续 ≥2 h，每 30 min 读 `/proc/uptime`、`ps`、`/state`、`/tmp/ui_hold.log`，确认无重启、UI 复现或背光异常。
+- 供电：移动电源低负载断电与冷启动电流实测；至少 3 次断电重启，记录 boot_id 与自启时间。
+- 外壳：装壳后按键手感、屏幕可视、USB-C 插拔、温升。
+- 阶段4剩余：Key 按钮与预算拒绝路径；真实 API 每次仍先取得用户授权，只发最小一次；不得伪造 provider 账单结论。
+
+安全边界：不整进程 SIGSTOP `zte_mifi`，不杀 `hostapd`，不启用 NAT/转发或付费流量；显示通过 `/dev/fb0` mmap 写入；不写 MTD/NV/bootloader；`work/` 内固件和转储不提交；真实 AI API 每次调用先取得用户明确授权，只发最小一次；Key 不读取、不输出、不写入文档。
+回滚：设备启动钩子 `/mnt/userdata/petcard/rollback_startup.sh`；启动入口原件在 `/mnt/userdata/petcard/rollback/`；程序回滚用 `bin/petcard.old`（先停 PetCard，再替换并让管理器重拉）。
+```
+
+## 阶段4实机验收记录（详细，2026-11-12）
 
 - 阶段4收尾版已装到 Android 16 手机（v0.2.0）：`/state` 经 PetCard 热点读取、确认后 `/action` 执行、真实 DeepSeek 请求经蜂窝成功、AI 建议未改设备数值、记忆真实候选保存后重启仍在并可删除/清空、两个隐私勾选重启后恢复默认关闭。
 - 主机单测 23 项全过（SuggestionParser 13、DailyBudget 4、DeepSeekProvider 消息构建 6）；最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / versionName 0.2.0。
@@ -9,7 +48,7 @@
 - 系统行为：PetCard 热点无互联网，手机曾自动切回「311」；重连后在“无法访问互联网”对话框勾选“对于此网络不再询问”并选“是”，之后保持连接。这是手机系统网络选择，不是 App 缺陷；已记录到 known-issues。
 - 未验证：Keystore Key 保存/删除按钮本轮未重新操作（保留用户原有 Key，仅确认 `iv`+`ciphertext` 字段存在）；预算拒绝路径未做真机注入测试（避免额外计费）；DeepSeek 401/402/429/5xx 实际错误未触发。
 - 构建绕过：本机全局 `~/.gradle/init.d/aliyun-mirror.gradle` 与项目 `RepositoriesMode.FAIL_ON_PROJECT_REPOS` 冲突；用 `work/gradle-local-mirror.init.gradle`（settings 级镜像，gitignore）并临时移开全局脚本完成构建，随后已恢复。APK 增量打包曾膨胀到 53 KB，clean build 后恢复 31,138 B。
-- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已接电脑 USB。工作区改动待提交。
+- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机接电脑 USB。阶段4改动已提交 `0002bb9`/`609527e`。
 
 ## 当前补充（2026-11-12，新版本已部署并通过普通重启验证）
 
@@ -187,12 +226,14 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 - 当时程序和素材位于 `/tmp`；本次已重新部署，设备重启后仍会清空。
 - 存档保留在 `/mnt/userdata/petcard/`。
 
-## 下一步
+## 下一步（阶段5）
 
-1. 用户实机验证默认软关机：按住电源键 5 秒 → 松开 → 短按，确认 GOOD NIGHT 后熄屏且不重启；再按电源键应唤醒。若失败，先读 `/tmp/petcard.log`、`/tmp/ui_hold.log`、`/sys/kernel/debug/lcd_zx29/lcd_lead` 和 `/proc/uptime`，再调 `g_soft_ignore_until` 或 `sleepin`/`blgoff` 顺序。
-2. 用户确认启动时 PetCard 早期帧是否出现、原厂 Power On 是否缩短。fb 时间线已证明原厂画面在 Linux 用户态之前或由面板保留，应用层不能根除；bootloader/内核 logo 修改超出当前安全边界。
-3. 阶段 4 剩余验收：Keystore Key 保存/删除按钮复验、预算拒绝路径真机注入（避免额外计费）、provider 401/402/429/5xx 实际错误复现；真实 API 调用每次仍需用户明确授权，只发最小一次。
-4. 阶段 5 外壳、移动电源和供电测试尚未开始；BLE 硬件此前未发现。
+1. 供电与场景：USB-C 充电头/移动电源低负载断电与冷启动、上电自启、至少 3 次断电重启；记录可复现供电方案。
+2. 外壳：结构验证件 → 128×128 屏/单键/USB-C/散热/走线 → 定稿；装壳后复测按键与屏幕。
+3. 长稳：小时级 `ui_hold` + HTTP + 看门狗；多次重启；`/mnt/userdata` 空间与存储磨损。
+4. 阶段 4 剩余：Key 保存/删除按钮、预算拒绝路径真机注入、provider 401/402/429/5xx 错误码；release 签名、`FLAG_SECURE`、edge-to-edge。
+5. 产品决策：BLE 是否硬性、记忆是否云同步、软关机是否允许手机远程唤醒。
+6. 仍需用户实机确认：软关机熄屏/按键唤醒；启动时 PetCard 早期帧与原厂 Power On 的可见时长。
 
 ## 本次会话证据与指标（2026-11-12）
 
@@ -211,7 +252,7 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 - 返工：增量打包曾把 APK 从 30 KB 膨胀到 53 KB，clean 后恢复；手机连接无互联网热点时自动切回有网 Wi‑Fi，系统对话框选“不再询问”后稳定。
 - 未验证：Key 保存/删除按钮、预算拒绝路径真机注入、provider 实际 401/402/429/5xx 错误码。
 
-## 新对话启动包（可直接粘贴）
+## 历史启动包（阶段3/4，仅作参考；阶段5请用顶部“阶段5启动包”）
 
 ```text
 项目：`D:\Pet_wifi`（Adol D623+ / ZX297520V3，PetCard V1）。

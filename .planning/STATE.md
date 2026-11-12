@@ -1,6 +1,6 @@
 # STATE
 
-## 当前状态（2026-11-12 阶段4实机验收通过，待提交）
+## 当前状态（2026-11-12 阶段4实机验收通过，阶段5待开始）
 
 - 阶段4收尾版已装到 Android 16 手机（v0.2.0）：`/state` 经 PetCard 热点读取、确认后 `/action` 执行、真实 DeepSeek 请求经蜂窝成功、AI 建议未改设备数值、记忆真实候选保存后重启仍在并可删除/清空、两个隐私勾选重启后恢复默认关闭。
 - 主机单元测试 23 项全过：`SuggestionParser` 13、`DailyBudget` 4、`DeepSeekProvider` 消息构建 6。最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / versionName 0.2.0。
@@ -10,7 +10,7 @@
 - 系统行为：PetCard 热点无互联网，手机曾自动切回「311」；重新连接后在“无法访问互联网”对话框勾选“对于此网络不再询问”并选“是”，随后保持连接。该行为属手机系统网络选择，不是 App 缺陷；已在 known-issues 记录。
 - 未验证/待办：Keystore Key 的保存/删除按钮本轮未重新操作（保留用户原有 Key，仅确认 `iv` + `ciphertext` 字段存在）；预算拒绝路径未做真机注入测试（避免触发额外计费）；DeepSeek 401/402/429/5xx 实际错误路径未触发（仅单测/代码映射）。
 - 构建环境：本机全局 `~/.gradle/init.d/aliyun-mirror.gradle` 与项目 `RepositoriesMode.FAIL_ON_PROJECT_REPOS` 冲突；用 `work/gradle-local-mirror.init.gradle`（settings 级镜像，gitignore）并临时移开全局脚本完成构建，随后已恢复全局脚本。APK 增量打包曾出现 53 KB 体积膨胀，clean build 后恢复正常。
-- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已接电脑 USB。阶段4改动已提交 `0002bb9`。
+- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms。阶段4改动已提交 `0002bb9` 和 `609527e`；本交接提交后推送 `origin/main`。下一步按 HANDOFF 顶部“阶段5启动包”执行。
 
 ## 当前状态（2026-11-12，新版本已部署并完成普通重启验证）
 
@@ -100,12 +100,14 @@
 - `/tmp` 非持久；阶段 5 需安装到 `/mnt/userdata`，评估 jffs2 执行、内存、开机自启。
 - 私有固件/镜像/转储在 `work/`（gitignore），不得提交。
 
-## 下一步
+## 下一步（阶段5）
 
-1. 阶段 4：先解决 Gradle APK 打包环境冲突，再安装 Android App 做离线假模型、设备 Wi‑Fi 状态/动作、蜂窝分流、Key 存储与预算拒绝路径实机验收；之后才考虑真实 API 请求。
-2. 阶段 4 后续：完善记忆与会话体验，确认 DeepSeek 输出兼容性；严格保留用户确认动作和 app 内费用 gate。
-3. 阶段 5：常驻安装、开机自启、UI 线程挂起自动化、外壳、USB‑C 供电与移动电源实测。
-4. 产品决策：BLE 是否硬性要求；若必须，需要重新确认硬件或接受外接方案。
+1. 供电与场景：USB-C 充电头/移动电源低负载断电与冷启动、上电自启、至少 3 次断电重启；记录可复现供电方案。
+2. 外壳：结构验证件 → 屏幕/单键/USB-C/散热/走线 → 定稿；装壳后复测按键与屏幕。
+3. 长稳：小时级 `ui_hold` + HTTP + 看门狗；多次重启；存储空间与磨损。
+4. 阶段4剩余：Key 保存/删除按钮、预算拒绝路径真机注入、provider 错误码；release 签名/`FLAG_SECURE`/edge-to-edge。
+5. 产品决策：BLE 是否硬性、记忆是否云同步、软关机是否允许手机远程唤醒。
+6. 用户实机确认：软关机熄屏/按键唤醒；启动早期帧与原厂 Power On 可见时长。
 
 ## 入口文档
 
