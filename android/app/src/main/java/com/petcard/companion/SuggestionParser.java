@@ -28,7 +28,9 @@ final class SuggestionParser {
             throw new JSONException("Unsupported suggestion schema");
         }
 
-        String reply = value.getString("reply_text").trim();
+        Object replyValue = value.get("reply_text");
+        if (!(replyValue instanceof String)) throw new JSONException("reply_text must be a string");
+        String reply = ((String) replyValue).trim();
         String mood = value.getString("mood_suggestion");
         String action = value.getString("action_suggestion");
         JSONArray candidates = value.getJSONArray("memory_candidates");
@@ -39,7 +41,9 @@ final class SuggestionParser {
 
         ArrayList<String> memories = new ArrayList<>();
         for (int i = 0; i < candidates.length(); i++) {
-            String memory = candidates.getString(i).trim();
+            Object candidate = candidates.opt(i);
+            if (!(candidate instanceof String)) throw new JSONException("Invalid memory candidate type");
+            String memory = ((String) candidate).trim();
             if (memory.isEmpty() || memory.length() > 160) {
                 throw new JSONException("Invalid memory candidate");
             }

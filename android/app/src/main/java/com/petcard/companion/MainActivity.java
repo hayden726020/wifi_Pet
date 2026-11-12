@@ -8,7 +8,6 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -23,12 +22,17 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    private static final String PET_STATE_URL = "http://192.168.0.1:8420/state";
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ArrayList<String[]> conversation = new ArrayList<>();
     private ApiKeyStore keyStore;
     private DailyBudget budget;
     private LocalMemory memory;
@@ -38,9 +42,13 @@ public final class MainActivity extends Activity {
     private TextView answer;
     private TextView petState;
     private TextView memoryView;
+    private TextView budgetView;
     private CheckBox sendToCloud;
+    private CheckBox shareMemories;
+    private Button askButton;
     private AiSuggestion lastSuggestion;
-    private Network localWifi;
+    private String lastPetContext = "";
+    private boolean requestInFlight;
 
     @Override
     public void onCreate(Bundle state) {
@@ -49,6 +57,7 @@ public final class MainActivity extends Activity {
         budget = new DailyBudget(this);
         memory = new LocalMemory(this);
         buildUi();
+        refreshBudget();
         refreshPetState();
     }
 
@@ -89,21 +98,31 @@ public final class MainActivity extends Activity {
         page.addView(clearKey);
 
         sendToCloud = new CheckBox(this);
-        sendToCloud.setText("我知道发送后聊天内容会发给 DeepSeek");
+        sendToCloud.setText("我知道聊天内容、最近对话和宠物状态会发送给 DeepSeek");
         sendToCloud.setChecked(false);
         page.addView(sendToCloud);
+        shareMemories = new CheckBox(this);
+        shareMemories.setText("允许把已保存的本机记忆作为上下文发送（默认关闭）");
+        shareMemories.setChecked(false);
+        page.addView(shareMemories);
         chatInput = new EditText(this);
         chatInput.setHint("和宠物说句话");
         chatInput.setMinLines(2);
         chatInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         page.addView(chatInput);
-        Button ask = new Button(this);
-        ask.setText("联网聊天（蜂窝网络）");
-        ask.setOnClickListener(v -> askProvider());
-        page.addView(ask);
+        askButton = new Button(this);
+        askButton.setText("联网聊天（蜂窝网络）");
+        askButton.setOnClickListener(v -> askProvider());
+        page.addView(askButton);
         Button demo = new Button(this);
         demo.setText("离线体验假模型");
-        demo.setOnClickListener(v -> showSuggestion(fakeSuggestion(chatInput.getText().toString())));
+        demo.setOnClickListener(v -> {
+            String prompt = chatInput.getText().toString();
+            AiSuggestion suggestion = fakeSuggestion(prompt);
+            rememberTurn("user", prompt.trim().isEmpty() ? "离线体验" : prompt.trim());
+            rememberTurn("assistant", suggestion.replyText);
+            showSuggestion(suggestion);
+        });
         page.addView(demo);
 
         answer = new TextView(this);
@@ -118,9 +137,12 @@ public final class MainActivity extends Activity {
         saveMemory.setOnClickListener(v -> approveMemories());
         page.addView(saveMemory);
         memoryView = new TextView(this);
-        List<String> memories = memory.read();
-        memoryView.setText("本机记忆：" + (memories.isEmpty() ? "暂无" : String.join("；", memories)));
         page.addView(memoryView);
+        refreshMemory();
+        Button deleteMemory = new Button(this);
+        deleteMemory.setText("删除单条记忆");
+        deleteMemory.setOnClickListener(v -> deleteMemories());
+        page.addView(deleteMemory);
         Button clearMemory = new Button(this);
         clearMemory.setText("清空本机记忆");
         clearMemory.setOnClickListener(v -> new AlertDialog.Builder(this)
@@ -131,8 +153,10 @@ public final class MainActivity extends Activity {
                 .show());
         page.addView(clearMemory);
         status = new TextView(this);
-        status.setText("每日 App 预算目标：¥5.00（本机估算；调整系统日期或清除数据会影响累计；同一 Key 的其他用量不计）");
+        status.setText("就绪。");
         page.addView(status);
+        budgetView = new TextView(this);
+        page.addView(budgetView);
         setContentView(scroll);
     }
 
@@ -151,20 +175,58 @@ public final class MainActivity extends Activity {
     }
 
     private void askProvider() {
+        if (requestInFlight) { setStatus("上一个请求还在进行中，请稍候。"); return; }
         String prompt = chatInput.getText().toString().trim();
         if (prompt.isEmpty() || prompt.length() > 2000) { setStatus("请输入 1–2000 个字符。"); return; }
         if (!sendToCloud.isChecked()) { setStatus("请确认聊天内容会发送给 DeepSeek 后再联网聊天；也可使用离线假模型。"); return; }
+        boolean includeMemories = shareMemories.isChecked();
+        final String cachedPetContext = lastPetContext;
+        requestInFlight = true;
+        askButton.setEnabled(false);
+        lastSuggestion = null;
+        answer.setText("");
+        setStatus("正在通过蜂窝网络请求 DeepSeek…");
         worker.execute(() -> {
+            AiSuggestion result = null;
+            String failure = null;
             try {
                 String key = keyStore.read();
                 if (key == null || key.isEmpty()) throw new IllegalStateException("请先保存 API Key。");
                 Network mobile = findCellularNetwork();
-                if (mobile == null) throw new IllegalStateException("未找到可用蜂窝网络；请保持设备 Wi‑Fi 连接并开启手机蜂窝数据。");
-                AiSuggestion suggestion = new DeepSeekProvider(mobile, budget).reply(key, prompt);
-                runOnUiThread(() -> showSuggestion(suggestion));
-            } catch (Exception error) { runOnUiThread(() -> setStatus(safeMessage(error))); }
+                if (mobile == null) throw new IllegalStateException("未找到可用蜂窝网络；请开启手机移动数据。");
+                String petContext = fetchPetContext();
+                if (petContext.isEmpty()) petContext = cachedPetContext;
+                List<String[]> history;
+                synchronized (conversation) { history = new ArrayList<>(conversation); }
+                List<String> memories = includeMemories ? memory.read() : Collections.emptyList();
+                result = new DeepSeekProvider(mobile, budget).reply(key, prompt, new AiContext(petContext, memories, history));
+            } catch (Exception error) {
+                failure = safeMessage(error);
+            }
+            final AiSuggestion suggestion = result;
+            final String errorText = failure;
+            runOnUiThread(() -> {
+                requestInFlight = false;
+                askButton.setEnabled(true);
+                refreshBudget();
+                if (suggestion != null) {
+                    rememberTurn("user", prompt);
+                    rememberTurn("assistant", suggestion.replyText);
+                    showSuggestion(suggestion);
+                } else {
+                    setStatus(errorText);
+                }
+            });
         });
-        setStatus("正在通过蜂窝网络请求 DeepSeek…");
+    }
+
+    private void rememberTurn(String role, String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.isEmpty()) return;
+        synchronized (conversation) {
+            conversation.add(new String[]{role, value});
+            while (conversation.size() > DeepSeekProvider.MAX_HISTORY_TURNS) conversation.remove(0);
+        }
     }
 
     private Network findCellularNetwork() {
@@ -173,6 +235,7 @@ public final class MainActivity extends Activity {
         for (Network network : manager.getAllNetworks()) {
             NetworkCapabilities caps = manager.getNetworkCapabilities(network);
             if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return network;
         }
@@ -181,13 +244,18 @@ public final class MainActivity extends Activity {
 
     private AiSuggestion fakeSuggestion(String prompt) {
         String text = prompt == null ? "" : prompt.trim();
+        String lower = text.toLowerCase(Locale.ROOT);
         String action = "none";
-        if (text.contains("喂")) action = "feed";
-        else if (text.contains("玩")) action = "play";
-        else if (text.contains("摸")) action = "pet";
-        else if (text.contains("睡")) action = "sleep";
-        else if (text.contains("醒")) action = "wake";
-        return new AiSuggestion(text.isEmpty() ? "我在这里陪着你。" : "听到啦：" + text, "happy", action, java.util.Collections.emptyList());
+        if (text.contains("喂") || lower.contains("feed")) action = "feed";
+        else if (text.contains("玩") || lower.contains("play")) action = "play";
+        else if (text.contains("摸") || lower.contains("pet")) action = "pet";
+        else if (text.contains("睡") || lower.contains("sleep")) action = "sleep";
+        else if (text.contains("醒") || lower.contains("wake")) action = "wake";
+        List<String> memories = Collections.emptyList();
+        if (lower.contains("remember") && !text.isEmpty()) {
+            memories = Collections.singletonList(text.length() > 160 ? text.substring(0, 160) : text);
+        }
+        return new AiSuggestion(text.isEmpty() ? "我在这里陪着你。" : "听到啦：" + text, "happy", action, memories);
     }
 
     private void showSuggestion(AiSuggestion suggestion) {
@@ -217,7 +285,24 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("保存所选", (dialog, which) -> {
                     for (int i = 0; i < options.length; i++) if (checked[i]) memory.add(options[i].toString());
                     refreshMemory();
-                    setStatus("已保存所选内容到本机记忆；不会自动上传。");
+                    setStatus("已保存所选内容到本机记忆；默认不会发送给 AI。");
+                }).show();
+    }
+
+    private void deleteMemories() {
+        final List<String> memories = memory.read();
+        if (memories.isEmpty()) { setStatus("本机没有记忆可删除。"); return; }
+        CharSequence[] options = memories.toArray(new CharSequence[0]);
+        boolean[] checked = new boolean[options.length];
+        new AlertDialog.Builder(this).setTitle("选择要删除的记忆").setMultiChoiceItems(options, checked,
+                (dialog, which, selected) -> checked[which] = selected)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除所选", (dialog, which) -> {
+                    List<String> selected = new ArrayList<>();
+                    for (int i = 0; i < options.length; i++) if (checked[i]) selected.add(options[i].toString());
+                    memory.delete(selected);
+                    refreshMemory();
+                    setStatus(selected.isEmpty() ? "未选择任何记忆。" : "已删除所选记忆。");
                 }).show();
     }
 
@@ -233,50 +318,121 @@ public final class MainActivity extends Activity {
         worker.execute(() -> {
             try {
                 Network wifi = findLocalWifiNetwork();
-                if (wifi == null) throw new IllegalStateException("设备 Wi‑Fi 未连接。");
-                HttpURLConnection connection = (HttpURLConnection) wifi.openConnection(new URL("http://192.168.0.1:8420/action?do=" + action));
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-                int code = connection.getResponseCode();
-                connection.disconnect();
-                runOnUiThread(() -> setStatus(code == 200 ? "动作已发送到设备。" : "设备返回 HTTP " + code));
+                if (wifi == null) throw new IllegalStateException("请先连接 PetCard 热点 adol-2D5025。");
+                httpGet(wifi, "http://192.168.0.1:8420/action?do=" + action, 5000, 16384);
+                runOnUiThread(() -> { setStatus("动作已发送到设备。"); refreshPetState(); });
             } catch (Exception error) { runOnUiThread(() -> setStatus("本地动作失败：" + safeMessage(error))); }
         });
     }
 
     private void refreshPetState() {
         worker.execute(() -> {
+            String summary;
+            String context = "";
             try {
                 Network wifi = findLocalWifiNetwork();
-                if (wifi == null) throw new IllegalStateException("请先连接设备 Wi‑Fi。");
-                HttpURLConnection connection = (HttpURLConnection) wifi.openConnection(new URL("http://192.168.0.1:8420/state"));
-                connection.setConnectTimeout(4000);
-                connection.setReadTimeout(4000);
-                String data;
-                try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                    byte[] chunk = new byte[2048]; int count;
-                    while ((count = input.read(chunk)) != -1) { if (output.size() + count > 16384) throw new IllegalStateException("设备状态响应过大。"); output.write(chunk, 0, count); }
-                    data = new String(output.toByteArray(), StandardCharsets.UTF_8);
-                } finally { connection.disconnect(); }
-                JSONObject state = new JSONObject(data);
-                String summary = "设备：" + state.optString("stage_name", "PetCore") + " · EXP " + state.optInt("exp")
+                if (wifi == null) throw new IllegalStateException("请先连接 PetCard 热点 adol-2D5025。");
+                JSONObject state = new JSONObject(httpGet(wifi, PET_STATE_URL, 4000, 16384));
+                summary = "设备：" + state.optString("stage_name", "PetCore") + " · EXP " + state.optInt("exp")
                         + " · 互动 " + state.optInt("interactions") + (state.optInt("sleeping") == 1 ? " · 睡眠中" : "");
-                runOnUiThread(() -> petState.setText(summary));
-            } catch (Exception error) { runOnUiThread(() -> petState.setText("设备状态：" + safeMessage(error))); }
+                context = petContextFrom(state);
+            } catch (Exception error) {
+                summary = "设备状态：" + safeMessage(error);
+            }
+            final String summaryText = summary;
+            final String contextText = context;
+            runOnUiThread(() -> { petState.setText(summaryText); lastPetContext = contextText; });
         });
+    }
+
+    private String fetchPetContext() {
+        try {
+            Network wifi = findLocalWifiNetwork();
+            if (wifi == null) return "";
+            return petContextFrom(new JSONObject(httpGet(wifi, PET_STATE_URL, 2500, 16384)));
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String petContextFrom(JSONObject state) {
+        return "stage=" + state.optString("stage_name", "?")
+                + "; exp=" + state.optInt("exp")
+                + "; hunger=" + state.optInt("hunger") + "/100"
+                + "; mood=" + state.optInt("mood") + "/100"
+                + "; energy=" + state.optInt("energy") + "/100"
+                + "; intimacy=" + state.optInt("intimacy") + "/100"
+                + "; sleeping=" + state.optInt("sleeping")
+                + "; age_min=" + state.optLong("age_min")
+                + "; interactions=" + state.optLong("interactions");
     }
 
     private Network findLocalWifiNetwork() {
         ConnectivityManager manager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (manager == null) return null;
+        Network validatedMatch = null;
         for (Network network : manager.getAllNetworks()) {
             NetworkCapabilities caps = manager.getNetworkCapabilities(network);
-            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return network;
+            if (caps == null || !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) continue;
+            if (!hasPetcardSubnet(manager.getLinkProperties(network))) continue;
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return network;
+            if (validatedMatch == null) validatedMatch = network;
         }
-        return null;
+        return validatedMatch;
     }
 
-    private void setStatus(String text) { status.setText(text + "\n今日 App 预算预留/用量：¥" + String.format(java.util.Locale.ROOT, "%.4f", budget.spentToday())); }
+    private static boolean hasPetcardSubnet(android.net.LinkProperties link) {
+        if (link == null) return false;
+        for (android.net.LinkAddress address : link.getLinkAddresses()) {
+            java.net.InetAddress ip = address.getAddress();
+            if (!(ip instanceof java.net.Inet4Address)) continue;
+            byte[] raw = ip.getAddress();
+            if ((raw[0] & 0xff) == 192 && (raw[1] & 0xff) == 168 && (raw[2] & 0xff) == 0) return true;
+        }
+        return false;
+    }
+
+    private static String httpGet(Network network, String url, int timeoutMs, int limit) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) network.openConnection(new URL(url));
+        try {
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            int code = connection.getResponseCode();
+            InputStream input = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
+            String body = readBounded(input, limit);
+            if (code < 200 || code >= 300) throw new java.io.IOException("设备返回 HTTP " + code);
+            return body;
+        } catch (java.net.SocketTimeoutException timeout) {
+            throw new java.io.IOException("访问 192.168.0.1 超时：请确认已连接 PetCard 热点 adol-2D5025，且设备已按电源键唤醒");
+        } catch (java.net.ConnectException refused) {
+            throw new java.io.IOException("无法访问 192.168.0.1：请确认已连接 PetCard 热点 adol-2D5025");
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static String readBounded(InputStream stream, int limit) throws Exception {
+        if (stream == null) throw new java.io.IOException("设备响应为空");
+        try (InputStream input = stream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] chunk = new byte[2048];
+            int total = 0;
+            int count;
+            while ((count = input.read(chunk)) != -1) {
+                total += count;
+                if (total > limit) throw new IllegalStateException("设备状态响应过大。");
+                output.write(chunk, 0, count);
+            }
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void refreshBudget() {
+        budgetView.setText("今日 App 预算：¥" + String.format(Locale.ROOT, "%.4f", budget.spentToday())
+                + " / ¥5.00（本机估算，不含同一 Key 的其他用量）");
+    }
+
+    private void setStatus(String text) { status.setText(text); }
     private static String safeMessage(Exception error) { return error.getMessage() == null ? "请求失败" : error.getMessage(); }
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
 

@@ -1,5 +1,16 @@
 # D623+ / PetCard V1 交接
 
+## 当前补充（2026-11-12 阶段4实机验收通过，待提交）
+
+- 阶段4收尾版已装到 Android 16 手机（v0.2.0）：`/state` 经 PetCard 热点读取、确认后 `/action` 执行、真实 DeepSeek 请求经蜂窝成功、AI 建议未改设备数值、记忆真实候选保存后重启仍在并可删除/清空、两个隐私勾选重启后恢复默认关闭。
+- 主机单测 23 项全过（SuggestionParser 13、DailyBudget 4、DeepSeekProvider 消息构建 6）；最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / versionName 0.2.0。
+- 提交前独立只读复核发现 4 个 P2，已修复：Wi‑Fi 只认持 `192.168.0.x` 且非 VPN 的网络（不再回退任意网段）；宠物状态注入前去换行/截断并标注只读；`usage` 缺失/无效时保留预算预留；预算日界改本地日期。另收紧 JSON 字符串类型、输出上限 800、补 3 项单测。真实请求在硬化前构建 `35e3833…` 上完成；最终构建 `4f0b29b…` 已重装并复验 `/state` 与预算，未再次发起计费请求。
+- 实机证据：手机连 `adol-2D5025`（192.168.0.100）时读取 `KID · EXP 58 · 互动 34`；假模型 `feed` 确认后 `EXP 60 · 互动 35`；真实请求一次返回英文回复并提到 “hungry/sleepy”，与设备 `hunger=26/100、energy=12~13/100` 对应，预算 `reserved_cny=0.00165`（显示 ¥0.0017）；随后刷新仍为 `EXP 60 · 互动 35`。真实请求返回 `mood=tired`、`action=feed`、两条记忆候选，保存一条后强制停止/重启 App 仍在，测试后已清空。
+- 系统行为：PetCard 热点无互联网，手机曾自动切回「311」；重连后在“无法访问互联网”对话框勾选“对于此网络不再询问”并选“是”，之后保持连接。这是手机系统网络选择，不是 App 缺陷；已记录到 known-issues。
+- 未验证：Keystore Key 保存/删除按钮本轮未重新操作（保留用户原有 Key，仅确认 `iv`+`ciphertext` 字段存在）；预算拒绝路径未做真机注入测试（避免额外计费）；DeepSeek 401/402/429/5xx 实际错误未触发。
+- 构建绕过：本机全局 `~/.gradle/init.d/aliyun-mirror.gradle` 与项目 `RepositoriesMode.FAIL_ON_PROJECT_REPOS` 冲突；用 `work/gradle-local-mirror.init.gradle`（settings 级镜像，gitignore）并临时移开全局脚本完成构建，随后已恢复。APK 增量打包曾膨胀到 53 KB，clean build 后恢复 31,138 B。
+- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已接电脑 USB。工作区改动待提交。
+
 ## 当前补充（2026-11-12，新版本已部署并通过普通重启验证）
 
 - 已把工作区新版本安装到 `/mnt/userdata/petcard`：`bin/petcard`、`bin/ui_hold`、`autostart.sh`。旧文件保留为同目录 `.old`；未改 `/etc/rc`，未写 MTD/NV/bootloader。部署前核对设备 `.new` 与本地构建产物 MD5 完全一致，激活后再核对一次。首次部署时 MD5：petcard `115c31b0dba699efdf34ded3b4eea7e9`、ui_hold `cfdf8a8edf9b1c93b53d64b6852d04a2`、autostart.sh `fa50f4df3d64e1a46908583c3b78c64f`；`bin/petcard.old` 为首次部署版 `6251f17…`。
@@ -73,7 +84,7 @@
 
 ## 一句话状态
 
-PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。阶段 3 Companion 页面及手机 Wi‑Fi 视觉/喂食/玩耍/摸摸/睡觉触控验收已通过，USB ADB 也验证 `/state`、主页和 PNG 路由。PetCard 当前运行；启动用 ADB shell 必须保持打开，否则设备会向包装脚本发送 Hangup 并恢复原厂 UI。阶段 4 Android 首个竖切已在工作区：离线假模型、DeepSeek adapter、Keystore key、¥5/日 App 预算 gate、Wi‑Fi/蜂窝分流、动作确认和本机记忆审批/清空；Java 源编译及 Gradle APK 构建通过，已装到 Android 16 手机并运行离线假模型初验。手机未连 PetCard AP，网络分流待验。用户允许聊天发送，App 内仍要求勾选；本轮没有 API 请求。未使用付费上网或运营商流量；未发现 BLE 硬件。阶段 5 常驻安装与外壳仍待做。
+PetCore 本地电子宠物已完成阶段 1/2 实机验收：128×128 宠物显示、单键短按/长按/双击、离线养成、存档、退出恢复原厂 UI。清理后的 64×64 透明帧按五类情绪四帧播放并随成长放大；面板现用用户实机确认的 RGB565 高字节优先格式，经 fb mmap 写入。阶段 3 Companion 页面及手机 Wi‑Fi 视觉/喂食/玩耍/摸摸/睡觉触控验收已通过。阶段 4 Android 已完成核心实机验收：v0.2.0 装到 Android 16 手机；PetCard 热点下读取状态、确认后执行动作正常；用户授权的一次真实 DeepSeek 请求经蜂窝成功并在回复中体现设备饥饿/精力状态，预算结算 ¥0.00165；记忆真实候选保存后重启仍在，删除/清空正常，隐私勾选重启后默认关闭；AI 建议未改设备数值。剩余：Key 保存/删除按钮复验、预算拒绝路径真机注入、provider 错误码复现。未发现 BLE 硬件；阶段 5 外壳/供电仍待做。
 
 ## 交接快照（2026-11-10 23:15 交接时）
 
@@ -180,7 +191,7 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 
 1. 用户实机验证默认软关机：按住电源键 5 秒 → 松开 → 短按，确认 GOOD NIGHT 后熄屏且不重启；再按电源键应唤醒。若失败，先读 `/tmp/petcard.log`、`/tmp/ui_hold.log`、`/sys/kernel/debug/lcd_zx29/lcd_lead` 和 `/proc/uptime`，再调 `g_soft_ignore_until` 或 `sleepin`/`blgoff` 顺序。
 2. 用户确认启动时 PetCard 早期帧是否出现、原厂 Power On 是否缩短。fb 时间线已证明原厂画面在 Linux 用户态之前或由面板保留，应用层不能根除；bootloader/内核 logo 修改超出当前安全边界。
-3. 软关机通过后，继续阶段 4 Android App 的 Wi‑Fi/蜂窝分流、Key 存储和预算拒绝路径实机验收。真实 API 调用仍需用户主动输入 Key 并点击。
+3. 阶段 4 剩余验收：Keystore Key 保存/删除按钮复验、预算拒绝路径真机注入（避免额外计费）、provider 401/402/429/5xx 实际错误复现；真实 API 调用每次仍需用户明确授权，只发最小一次。
 4. 阶段 5 外壳、移动电源和供电测试尚未开始；BLE 硬件此前未发现。
 
 ## 本次会话证据与指标（2026-11-12）
@@ -202,15 +213,17 @@ Git：`main` 当前基线为本次提交 `Checkpoint PetCard soft shutdown and e
 
 当前设备（2026-11-12）：PetCard 默认软关机；`/mnt/userdata/petcard` 激活 petcard `11e0f661…`、ui_hold `cfdf8a8…`、autostart.sh `fa50f4d…`、prepare_boot.sh `5ee065f…`、boot-frame.raw `829aa02…`；`bin/petcard.old` 为 `1ed912b8…`。管理器/ui_hold 由 `/etc/rc` 启动；ADB 掉线时拔插 USB-C。
 
+手机 App（2026-11-12）：v0.2.0 已装；Key 已加密保存（不读取、不输出内容）；今日 App 预算显示 ¥0.0017；本机记忆为空；一次真实 DeepSeek 请求已完成并通过验收。后续真实请求需重新取得用户授权，只发最小一次。
+
 当前未解决/待验收：
 - 软关机物理按钮流程未验收（5 秒长按→松开→短按；GOOD NIGHT→熄屏不重启；电源键唤醒）。
 - 原厂 Power On 仍可见；fb 时间线显示 3.2 s 后无原厂帧，来自 Linux 之前或面板保留；早期帧 3.73 s 只能缩短，不能移除；bootloader 修改超出边界。
 - 真实 `/sbin/poweroff` 在 USB 供电下约 7 秒重启；默认已不用；`--hard-poweroff` 可复现。
-- 阶段 4 Android 分流/Key/预算实机验收、阶段 5 外壳/供电未完成。
+- 阶段 4 Android 核心验收已通过；剩余 Key 保存/删除按钮复验、预算拒绝路径真机注入、provider 错误码复现。手机连 PetCard 热点时若系统提示无互联网，需选“保持连接/不再询问”，否则会切回有网 Wi‑Fi。阶段 5 外壳/供电未完成。
 
 接手后：先 `adb devices -l`；若掉线拔插 USB-C。只读读取 `/mnt/userdata/petcard/autostart.log`、`boot-assets.log`、`poweroff.log`、`/tmp/petcard.log`、`/tmp/ui_hold.log`、`/proc/uptime`、`/proc/sys/kernel/random/boot_id`、`lcd_lead`、进程列表；让用户实机测试软关机/唤醒。不要主动触发真实关机；需要真实电源行为时先征得同意。
 
-安全边界：不整进程 SIGSTOP `zte_mifi`，不杀 `hostapd`，不启用 NAT/转发或付费流量；显示通过 `/dev/fb0` mmap 写入；不写 MTD/NV/bootloader；`work/` 内固件和转储为私有资料，不提交或上传；真实 AI API 仅在用户主动输入 Key 并确认发送后调用。
+安全边界：不整进程 SIGSTOP `zte_mifi`，不杀 `hostapd`，不启用 NAT/转发或付费流量；显示通过 `/dev/fb0` mmap 写入；不写 MTD/NV/bootloader；`work/` 内固件和转储为私有资料，不提交或上传；真实 AI API 每次调用都需用户明确授权，只发最小一次；Key 不读取、不输出、不写入文档。
 
 回滚：设备启动钩子 `/mnt/userdata/petcard/rollback_startup.sh`；启动入口原件在 `/mnt/userdata/petcard/rollback/`；程序回滚可用 `bin/petcard.old`（先停 PetCard，再替换并让管理器重拉）。
 ```

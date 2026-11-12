@@ -4,11 +4,10 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 
 final class DailyBudget {
     static final double LIMIT_CNY = 5.00;
-    static final int MAX_OUTPUT_TOKENS = 512;
+    static final int MAX_OUTPUT_TOKENS = 800;
 
     // Official peak rates as of 2026-11-11; use 8 CNY/USD for FX headroom.
     private static final double INPUT_USD_PER_MILLION = 0.30;
@@ -25,26 +24,33 @@ final class DailyBudget {
     }
 
     synchronized double reserveForRequest(int requestUtf8Bytes) throws BudgetExceededException {
-        String today = LocalDate.now(ZoneOffset.UTC).toString();
+        String today = LocalDate.now().toString();
         String storedDay = preferences.getString(DAY, "");
         double spent = today.equals(storedDay) ? Double.longBitsToDouble(preferences.getLong(SPENT, 0L)) : 0.0;
-        double inputUpperBound = Math.max(1, requestUtf8Bytes);
-        double usd = (inputUpperBound * INPUT_USD_PER_MILLION
-                + MAX_OUTPUT_TOKENS * OUTPUT_USD_PER_MILLION) / 1_000_000.0;
-        double reservation = usd * CNY_PER_USD_GUARD * SAFETY_MARGIN;
+        double reservation = reservationCny(requestUtf8Bytes);
         if (spent + reservation > LIMIT_CNY) throw new BudgetExceededException();
         if (!store(today, spent + reservation)) throw new BudgetExceededException();
         return reservation;
     }
 
     synchronized void settle(double reservation, int promptTokens, int completionTokens) {
-        String today = LocalDate.now(ZoneOffset.UTC).toString();
+        String today = LocalDate.now().toString();
         String storedDay = preferences.getString(DAY, "");
         double spent = today.equals(storedDay) ? Double.longBitsToDouble(preferences.getLong(SPENT, 0L)) : 0.0;
-        double actual = ((Math.max(0, promptTokens) * INPUT_USD_PER_MILLION
-                + Math.max(0, completionTokens) * OUTPUT_USD_PER_MILLION) / 1_000_000.0)
-                * CNY_PER_USD_GUARD * SAFETY_MARGIN;
-        store(today, Math.max(0.0, spent - reservation) + actual);
+        store(today, Math.max(0.0, spent - reservation) + costCny(promptTokens, completionTokens));
+    }
+
+    static double reservationCny(int requestUtf8Bytes) {
+        double inputUpperBound = Math.max(1, requestUtf8Bytes);
+        double usd = (inputUpperBound * INPUT_USD_PER_MILLION
+                + MAX_OUTPUT_TOKENS * OUTPUT_USD_PER_MILLION) / 1_000_000.0;
+        return usd * CNY_PER_USD_GUARD * SAFETY_MARGIN;
+    }
+
+    static double costCny(int promptTokens, int completionTokens) {
+        double usd = (Math.max(0, promptTokens) * INPUT_USD_PER_MILLION
+                + Math.max(0, completionTokens) * OUTPUT_USD_PER_MILLION) / 1_000_000.0;
+        return usd * CNY_PER_USD_GUARD * SAFETY_MARGIN;
     }
 
     synchronized void keepReservation(double reservation) {
@@ -52,7 +58,7 @@ final class DailyBudget {
     }
 
     synchronized double spentToday() {
-        String today = LocalDate.now(ZoneOffset.UTC).toString();
+        String today = LocalDate.now().toString();
         if (!today.equals(preferences.getString(DAY, ""))) return 0.0;
         return Double.longBitsToDouble(preferences.getLong(SPENT, 0L));
     }
@@ -62,6 +68,6 @@ final class DailyBudget {
     }
 
     static final class BudgetExceededException extends Exception {
-        BudgetExceededException() { super("Daily DeepSeek budget reached"); }
+        BudgetExceededException() { super("今日 App 预算上限 ¥5.00 已用完，请明天再试。"); }
     }
 }

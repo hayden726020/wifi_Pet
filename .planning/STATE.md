@@ -1,5 +1,17 @@
 # STATE
 
+## 当前状态（2026-11-12 阶段4实机验收通过，待提交）
+
+- 阶段4收尾版已装到 Android 16 手机（v0.2.0）：`/state` 经 PetCard 热点读取、确认后 `/action` 执行、真实 DeepSeek 请求经蜂窝成功、AI 建议未改设备数值、记忆真实候选保存后重启仍在并可删除/清空、两个隐私勾选重启后恢复默认关闭。
+- 主机单元测试 23 项全过：`SuggestionParser` 13、`DailyBudget` 4、`DeepSeekProvider` 消息构建 6。最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / versionName 0.2.0。
+- 提交前独立只读复核发现 4 个 P2，已修复：Wi‑Fi 选择不再回退到任意网段（只认持 `192.168.0.x` 且非 VPN 的 Wi‑Fi）；宠物状态注入前去换行/截断并标注只读；`usage` 缺失或无效时保留预算预留；预算日界改为本地日期。另收紧 JSON 字符串类型、输出上限 800、补 3 项单测。真实请求在硬化前构建 `35e3833…` 上完成；最终构建 `4f0b29b…` 已重装并复验 `/state` 与预算，未再次发起计费请求。
+- 实机证据（2026-11-12）：手机连 `adol-2D5025`（192.168.0.100）时读取设备状态 `KID · EXP 58 · 互动 34`；假模型 `feed` 确认后变为 `EXP 60 · 互动 35`；真实请求一次返回英文回复，明确提到“hungry/sleepy”，与设备 `hunger=26/100、energy=12~13/100` 对应，预算结算 `reserved_cny=0.00165`（显示 ¥0.0017）；随后刷新状态仍为 `EXP 60 · 互动 35`，证明模型只给建议未写状态。
+- 真实请求返回 `mood=tired`、`action=feed`、两条记忆候选；保存其中一条后强制停止/重启 App 仍显示，随后已清空测试记忆，当前 `local_pet_memory.xml` 为空。
+- 系统行为：PetCard 热点无互联网，手机曾自动切回「311」；重新连接后在“无法访问互联网”对话框勾选“对于此网络不再询问”并选“是”，随后保持连接。该行为属手机系统网络选择，不是 App 缺陷；已在 known-issues 记录。
+- 未验证/待办：Keystore Key 的保存/删除按钮本轮未重新操作（保留用户原有 Key，仅确认 `iv` + `ciphertext` 字段存在）；预算拒绝路径未做真机注入测试（避免触发额外计费）；DeepSeek 401/402/429/5xx 实际错误路径未触发（仅单测/代码映射）。
+- 构建环境：本机全局 `~/.gradle/init.d/aliyun-mirror.gradle` 与项目 `RepositoriesMode.FAIL_ON_PROJECT_REPOS` 冲突；用 `work/gradle-local-mirror.init.gradle`（settings 级镜像，gitignore）并临时移开全局脚本完成构建，随后已恢复全局脚本。APK 增量打包曾出现 53 KB 体积膨胀，clean build 后恢复正常。
+- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已改接电脑 USB。工作区改动待提交。
+
 ## 当前状态（2026-11-12，新版本已部署并完成普通重启验证）
 
 - 新版本已从工作区安装到设备 `/mnt/userdata/petcard`：`bin/petcard`、`bin/ui_hold`、`autostart.sh`；旧文件保留为 `.old`，可回滚。未改 `/etc/rc`，未写 MTD/NV/bootloader。

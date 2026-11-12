@@ -1,8 +1,8 @@
 # PetCard 阶段路线图
 
-更新：2026-11-11。当前代码基线 `22e4176` 已推送至 `origin/main`；阶段 3 手机 Companion 页面和触控验收已完成。
+更新：2026-11-12。当前代码基线 `67912ce`（阶段4收尾改动待提交）；阶段 4 核心实机验收已通过。
 
-## 阶段 4：云端 AI 与记忆（进行中：APK 已安装，离线流程通过初验）
+## 阶段 4：云端 AI 与记忆（核心验收通过，2026-11-12）
 
 ### 目标
 
@@ -31,15 +31,18 @@
    - 建立可构建的 Android 工程，迁移/复用阶段 3 的状态和互动界面。
    - 实现设备 Wi-Fi 与蜂窝网络分离、断网恢复和本地状态同步。
    - 实现 Android Keystore key storage 与请求前 ¥5/日预算 gate。
-3. **4C 本地记忆**
-   - 保存近期上下文、用户可见的长期记忆与必要的宠物状态快照。
-   - 提供查看、删除和清空记忆入口；定义 schema 版本与备份/迁移规则。
+3. **4C 本地记忆**（代码完成，待手机验收）
+   - 已批准记忆持久化在本机 SharedPreferences，`schema_version=1`，兼容旧裸数组格式；最多 50 条，支持单条删除和全部清空。
+   - 最近 6 条对话仅保存在进程内，不落盘；请求时随聊天内容一起发送。
+   - 每次请求前从设备 `/state` 读取宠物状态快照，作为只读上下文；读取失败时使用上次缓存或省略。
+   - 已批准记忆只有用户勾选“允许作为上下文发送”才会进入云端请求，默认关闭。
 4. **4D 真实 provider 接入**
    - 目标为 DeepSeek `deepseek-flash` Chat Completions；官方 API 使用 `https://api.deepseek.com/chat/completions`，JSON Output 仍由本地 schema 二次验证。
    - 网络/超时/限流/预算不足时回退到离线养成；AI 输出仍经过本地 schema 和动作校验。
-5. **4E 手机实机验收**
-   - 验证本地 Wi-Fi 控制与蜂窝 API 请求可并行工作。
-   - 验证聊天、记忆恢复/删除、错误恢复和设备状态不被模型任意改写。
+   - 401/402/429/5xx 已映射为中文提示；预算在请求前预留、返回 usage 后结算，失败保留预留。
+5. **4E 手机实机验收**（核心项通过，2026-11-12）
+   - 已验证：PetCard 热点下 `/state` 与确认后 `/action` 正常；蜂窝真实 DeepSeek 请求成功；请求上下文包含设备状态；聊天、记忆保存/重启/删除/清空正常；AI 建议未改设备数值。
+   - 剩余：Keystore Key 保存/删除按钮复验；预算拒绝路径真机注入；provider 401/402/429/5xx 实际错误复现；不得伪造 provider 账单结论。
 
 ### 已确认 / 仍待决策
 
@@ -49,9 +52,11 @@
 ### 当前实现证据与限制
 
 - `android/` 含原生单页 Companion、离线假模型、DeepSeek `chat/completions` adapter、Android Keystore AES/GCM key 封装、每日预算预留/结算、严格 JSON schema、本机记忆审批与清空，以及设备 Wi‑Fi/蜂窝网络分别绑定。
-- Java 源文件使用 `javac -encoding UTF-8` 对 Android 36 `android.jar` 编译通过；Gradle 8.13 `:app:assembleDebug` 成功，产物 `android/app/build/outputs/apk/debug/app-debug.apk`（26,694 B）。构建有 SDK XML 版本 4 与工具最多支持版本 3 的兼容警告及 Gradle 9.0 弃用提示。
-- APK 已装到 Android 16 手机并启动；离线假模型返回默认回复、`happy`、`none`，预算为 ¥0.0000。手机当时未连 PetCard AP，设备 `/state` 显示 timeout。尚未做 Wi‑Fi/蜂窝分流、Keystore/动作/记忆实机验收。本轮没有真实 DeepSeek 请求或 API 费用。每日 ¥5 是仅限本 App 的估算/预算 gate，无法限制共享 Key 的其他用量，也无法代替 provider 账户限额。
-- UTC 日界减少时区变化造成的额度重置，但用户修改系统日期或清除 App 数据仍可重置本地累计；不能将此客户端 gate 描述为严格账单硬上限。
+- 阶段4收尾版 Java 源编译通过；Gradle 8.13 `:app:testDebugUnitTest` 23 项全过，`:app:assembleDebug` 成功，最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / 0.2.0。构建有 SDK XML 版本 4 兼容警告及 Gradle 9.0 弃用提示。
+- 新增请求上下文：宠物状态（来自设备 `/state`）、最近 6 条对话、可选已批准记忆（独立勾选，默认关闭）；记忆支持单条删除与 schema v1；DeepSeek 401/402/429/5xx 映射为中文提示；预算单独显示；请求期间禁用联网按钮防止重复计费。
+- 收尾版 v0.2.0 已装到 Android 16 手机并完成实机验收：手机连 `adol-2D5025`（192.168.0.100）读取 `KID·EXP 58·互动 34`；假模型 `feed` 确认后 `EXP 60·互动 35`；用户授权的一次真实 DeepSeek 请求返回 `tired/feed` 和两条记忆候选，回复提到 hungry/sleepy 与设备 `hunger=26/100、energy=12~13/100` 对应，预算 `reserved_cny=0.00165`（显示 ¥0.0017）；随后设备仍为 `EXP 60·互动 35`。真实记忆候选保存后强制停止/重启仍在，测试后已清空。
+- 系统行为：PetCard 热点无互联网，手机曾自动切回有网 Wi‑Fi；在系统“无法访问互联网”对话框勾选“不再询问”并选“是”后保持连接。每日 ¥5 是仅限本 App 的估算/预算 gate，无法限制共享 Key 的其他用量，也无法代替 provider 账户限额。
+- 预算日界改用手机本地日期（`LocalDate.now()`），与界面“今日”一致；用户修改系统日期或清除 App 数据仍可重置本地累计，因此不能将此客户端 gate 描述为严格账单硬上限。
 - 复核将 Java 集合工厂方法替换为旧 Android 兼容实现；Keystore 偏好写入失败会报错；App 内发送聊天内容需勾选确认。
 
 ### 范围边界
