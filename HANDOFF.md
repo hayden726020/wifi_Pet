@@ -204,11 +204,18 @@ adb shell 'cat /sys/kernel/debug/lcd_zx29/lcd_lead'
 - 未完成：软关机熄屏/按键唤醒的物理按钮验收；原厂 Power On 只能缩短不能移除。
 - 本轮未写 MTD/NV/bootloader；诊断时间线证据在 gitignore 的 `work/boot-timeline/`。
 
+### 阶段4 会话指标（2026-11-12 下午）
+
+- 主机单测 23 项全过（SuggestionParser 13、DailyBudget 4、DeepSeekProvider 6）；Gradle clean 构建 2 次；最终 APK 31,138 B；1 次真实 DeepSeek 请求，成本估算 `reserved_cny=0.00165`。
+- 实机验收 2 轮：离线流程（假模型/记忆/隐私闸门/动作失败路径）+ 在线流程（`/state`、确认动作、真实请求、记忆重启持久化）；独立复核发现 4 个 P2，全部修复；P0/P1 为 0。
+- 返工：增量打包曾把 APK 从 30 KB 膨胀到 53 KB，clean 后恢复；手机连接无互联网热点时自动切回有网 Wi‑Fi，系统对话框选“不再询问”后稳定。
+- 未验证：Key 保存/删除按钮、预算拒绝路径真机注入、provider 实际 401/402/429/5xx 错误码。
+
 ## 新对话启动包（可直接粘贴）
 
 ```text
 项目：`D:\Pet_wifi`（Adol D623+ / ZX297520V3，PetCard V1）。
-Git：`main` 当前基线为本次提交 `Checkpoint PetCard soft shutdown and early boot frame`；SHA 以 `git log -1` 为准，`origin/main` 尚未包含阶段 3+ 改动；工作区提交后应干净。
+Git：`main` 当前基线 `0002bb9 Complete Phase 4 Android companion acceptance`；SHA 以 `git log -1` 为准，`origin/main` 尚未包含阶段 3+ 改动；工作区提交后应干净。
 先读：`HANDOFF.md` 顶部、`.planning/STATE.md` 顶部、`petcard/README.md` 的关机/开机接管章节、`docs/function-matrix.md`；然后 `git status`。
 
 当前设备（2026-11-12）：PetCard 默认软关机；`/mnt/userdata/petcard` 激活 petcard `11e0f661…`、ui_hold `cfdf8a8…`、autostart.sh `fa50f4d…`、prepare_boot.sh `5ee065f…`、boot-frame.raw `829aa02…`；`bin/petcard.old` 为 `1ed912b8…`。管理器/ui_hold 由 `/etc/rc` 启动；ADB 掉线时拔插 USB-C。

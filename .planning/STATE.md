@@ -10,7 +10,7 @@
 - 系统行为：PetCard 热点无互联网，手机曾自动切回「311」；重新连接后在“无法访问互联网”对话框勾选“对于此网络不再询问”并选“是”，随后保持连接。该行为属手机系统网络选择，不是 App 缺陷；已在 known-issues 记录。
 - 未验证/待办：Keystore Key 的保存/删除按钮本轮未重新操作（保留用户原有 Key，仅确认 `iv` + `ciphertext` 字段存在）；预算拒绝路径未做真机注入测试（避免触发额外计费）；DeepSeek 401/402/429/5xx 实际错误路径未触发（仅单测/代码映射）。
 - 构建环境：本机全局 `~/.gradle/init.d/aliyun-mirror.gradle` 与项目 `RepositoriesMode.FAIL_ON_PROJECT_REPOS` 冲突；用 `work/gradle-local-mirror.init.gradle`（settings 级镜像，gitignore）并临时移开全局脚本完成构建，随后已恢复全局脚本。APK 增量打包曾出现 53 KB 体积膨胀，clean build 后恢复正常。
-- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已改接电脑 USB。工作区改动待提交。
+- 设备侧已恢复：D623+ 接充电头供电，`hostapd`/`udhcpd`/`dnsmasq` 正常，`br0=192.168.0.1/24`，`ui_hold` 挂起 2 个 MMI 线程，PetCard 刷新约 21.2 ms；手机已接电脑 USB。阶段4改动已提交 `0002bb9`。
 
 ## 当前状态（2026-11-12，新版本已部署并完成普通重启验证）
 
