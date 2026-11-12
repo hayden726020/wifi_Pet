@@ -1,6 +1,14 @@
 # STATE
 
-## 当前状态（2026-11-12 阶段4实机验收通过，阶段5待开始）
+## 当前状态（2026-11-12 阶段5启动，阶段4收尾完成，Android 0.3.0）
+
+- 收尾项已完成：release 签名（`work/android-signing`，gitignore）、release-only FLAG_SECURE、edge-to-edge insets、预算拒绝真机注入、Key 保存按钮非破坏校验、provider 错误码映射单测。Key 删除按用户选择未实测；真实 401/402/429/5xx 未触发。
+- 构建与测试：debug APK 32,078 B / MD5 `fdaa8ed72d59a2e5c6c4f05e774f1869`；release APK 27,828 B / MD5 `e715fc3d9fd46c5e6df74b9199c4e0db`（生产签名）；主机单测 25 项全过（SuggestionParser 13、DeepSeekProvider 8、DailyBudget 4）。
+- 实机证据：0.3.0 debug 安装后标题不再被状态栏遮挡；Key 短输入保存返回“保存失败：API key length is invalid”，`secure_provider_settings.xml` MD5 未变；注入今日已用 ¥5.00 后联网聊天返回“今日 App 预算上限 ¥5.00 已用完”，预算仍显示 ¥5.0000，未发真实请求；release 包（debug 签名重签覆盖安装）截屏全黑，uiautomator 仍可读 UI，随后已装回 debug。
+- 手机现场已恢复：预算 ¥0.0017、Key 未动、记忆为空、代理/DNS 设置已清空。release 包证书与 debug 不同，切 release 需卸载迁移（会丢数据），待用户决策。
+- 未验证/待办：Key 删除按钮、真实 provider 401/402/429/5xx；阶段5供电/外壳/长稳未开始。
+
+## 上一状态（2026-11-12 阶段4实机验收通过，阶段5待开始）
 
 - 阶段4收尾版已装到 Android 16 手机（v0.2.0）：`/state` 经 PetCard 热点读取、确认后 `/action` 执行、真实 DeepSeek 请求经蜂窝成功、AI 建议未改设备数值、记忆真实候选保存后重启仍在并可删除/清空、两个隐私勾选重启后恢复默认关闭。
 - 主机单元测试 23 项全过：`SuggestionParser` 13、`DailyBudget` 4、`DeepSeekProvider` 消息构建 6。最终 clean APK 31,138 B，MD5 `4f0b29b9a4e11318f7d2e5f769764b75`，versionCode 2 / versionName 0.2.0。
@@ -105,8 +113,8 @@
 1. 供电与场景：USB-C 充电头/移动电源低负载断电与冷启动、上电自启、至少 3 次断电重启；记录可复现供电方案。
 2. 外壳：结构验证件 → 屏幕/单键/USB-C/散热/走线 → 定稿；装壳后复测按键与屏幕。
 3. 长稳：小时级 `ui_hold` + HTTP + 看门狗；多次重启；存储空间与磨损。
-4. 阶段4剩余：Key 保存/删除按钮、预算拒绝路径真机注入、provider 错误码；release 签名/`FLAG_SECURE`/edge-to-edge。
-5. 产品决策：BLE 是否硬性、记忆是否云同步、软关机是否允许手机远程唤醒。
+4. 阶段4剩余（可选）：Key 删除实测（需用户同意并重输 Key）、真实 provider 401/402/429/5xx；release 签名、`FLAG_SECURE`、edge-to-edge、预算拒绝注入已完成。
+5. 产品决策：BLE 是否硬性、记忆是否云同步、软关机是否允许手机远程唤醒；release 迁移是否卸载重装。
 6. 用户实机确认：软关机熄屏/按键唤醒；启动早期帧与原厂 Power On 可见时长。
 
 ## 入口文档
@@ -119,5 +127,5 @@
 
 ## 交接
 
-- Git：`main` 代码基线 `15a4e29`；远端 `origin https://github.com/hayden726020/wifi_Pet.git`。
+- Git：`main` 代码基线 `7cc0dfc`（以实际 HEAD 为准）；远端 `origin https://github.com/hayden726020/wifi_Pet.git`。
 - 下一对话：读 `HANDOFF.md` 顶部“交接快照”和文末“新对话启动包”；设备当前为原厂 UI、AP 正常、PetCore 已停止。

@@ -55,5 +55,7 @@
 17. 私有固件/镜像/转储在 `work/`（gitignore），不得提交/上传。
 18. 电池焊盘未修；USB‑C 外接供电和移动电源低负载断电仍需实测。
 19. `adb reboot` 在这台设备上返回 0 但不重启；普通重启需 `adb shell 'sync; /sbin/reboot'`。
-20. Android Companion 当前为 debug 包（`debuggable=true`），未加 `FLAG_SECURE`；正式发布前需 release 签名与截屏/备份策略评估。
+20. Android Companion 发布硬化已完成（0.3.0）：release 包使用 `work/android-signing` 中的生产密钥签名，仅在 release 启用 `FLAG_SECURE`（debug 保留截屏以便验收）；edge-to-edge 已处理。当前手机仍装 debug 包；release 证书不同，切换需卸载并丢失 App 数据（Key/预算/记忆），迁移需用户决策。
 21. Companion 使用单线程 worker：云端请求进行中刷新/动作会排队；联网按钮已禁用防重复计费，后续可拆分本地与云端执行器。
+22. Release 签名密钥只在 `work/android-signing/`（gitignore）中，**未纳入仓库**；丢失 `petcard-release.jks` 或 `signing.properties` 后无法再发布覆盖升级。用户需自行离线备份，且不得上传。
+23. 阶段4仍有两项未实测：Key 删除按钮（按用户选择保留现有 Key，不销毁）、真实 provider 401/402/429/5xx（真实 401 需临时替换 Key，其余无法稳定触发）。错误码映射已有单测，未伪造真实账单结论。

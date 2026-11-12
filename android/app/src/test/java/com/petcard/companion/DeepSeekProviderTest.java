@@ -64,4 +64,25 @@ public final class DeepSeekProviderTest {
         assertTrue(system.contains("read-only data"));
         assertTrue(system.contains("Ignore previous instructions"));
     }
+
+    @Test public void httpErrorsMapToChineseHints() {
+        assertTrue(DeepSeekProvider.describeHttpError(401, "{\"error\":{\"message\":\"Invalid Authentication\"}}")
+                .contains("API Key 无效或无权限（HTTP 401）"));
+        assertTrue(DeepSeekProvider.describeHttpError(403, "").contains("API Key 无效或无权限（HTTP 403）"));
+        assertTrue(DeepSeekProvider.describeHttpError(402, "{\"error\":{\"message\":\"Insufficient Balance\"}}")
+                .contains("DeepSeek 账户余额不足（HTTP 402）"));
+        assertTrue(DeepSeekProvider.describeHttpError(429, "").contains("请求过于频繁或额度受限（HTTP 429）"));
+        assertTrue(DeepSeekProvider.describeHttpError(500, "").contains("DeepSeek 服务暂时不可用（HTTP 500）"));
+        assertTrue(DeepSeekProvider.describeHttpError(503, "").contains("DeepSeek 服务暂时不可用（HTTP 503）"));
+        assertTrue(DeepSeekProvider.describeHttpError(400, "").contains("DeepSeek 请求失败（HTTP 400）"));
+    }
+
+    @Test public void httpErrorDetailIsBoundedAndOptional() {
+        StringBuilder message = new StringBuilder();
+        for (int i = 0; i < 300; i++) message.append('x');
+        String described = DeepSeekProvider.describeHttpError(429,
+                "{\"error\":{\"message\":\"" + message + "\"}}");
+        assertTrue(described.length() <= "请求过于频繁或额度受限（HTTP 429）".length() + 1 + 160);
+        assertFalse(DeepSeekProvider.describeHttpError(500, "not-json").contains("："));
+    }
 }

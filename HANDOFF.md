@@ -1,6 +1,16 @@
 # D623+ / PetCard V1 交接
 
-## 当前补充（2026-11-12 阶段4验收完成，阶段5启动）
+## 当前补充（2026-11-12 阶段5启动：阶段4收尾完成，Android 0.3.0）
+
+- 阶段4收尾已完成并提交（本提交）：release 签名、release-only FLAG_SECURE、edge-to-edge insets、预算拒绝真机注入、Key 保存按钮非破坏校验、provider 错误码映射单测。Key 删除按钮按用户选择**未实测**；真实 401/402/429/5xx 仍未触发。
+- 版本 0.3.0（versionCode 3）。Debug APK 32,078 B，MD5 `fdaa8ed72d59a2e5c6c4f05e774f1869`；Release APK 27,828 B，MD5 `e715fc3d9fd46c5e6df74b9199c4e0db`（生产签名）。主机单测 **25 项全过**（SuggestionParser 13、DeepSeekProvider 8、DailyBudget 4）。
+- Release 签名密钥在 `work/android-signing/petcard-release.jks`，密码只在同目录 `signing.properties`；`work/` 已 gitignore，**必须由用户自行备份**，不得提交。`app/build.gradle` 仅在属性文件存在时启用 release 签名。
+- 手机现场：A024 已装 debug v0.3.0（数据保留）；今日预算恢复为 ¥0.0017；用户 Key 未读取/未覆盖；本机记忆为空。Debug 包可截屏，release 包已实测截屏全黑（FLAG_SECURE）。
+- 验证方式：release-only FLAG_SECURE 通过“用 debug 签名重签 release 包再覆盖安装”验证（同签名数据不丢，截屏黑屏），随后已装回 debug 包；预算拒绝通过 `run-as` 注入今日已用 ¥5.00 + 不可达全局代理兜底验证，未发起真实请求，测试后 prefs 与代理均已恢复。
+- 迁移提醒：release 包使用新证书，**不能**覆盖当前 debug 签名安装；将来切 release 需卸载 App（会丢 Key/预算/记忆），需用户另行确认。
+- 阶段5剩余：供电/移动电源实测、外壳结构、小时级长稳与多次重启；Key 删除复验和真实 provider 错误码仍为可选项。设备侧未改 MTD/NV/bootloader，本轮未触发真实 AI 计费请求。
+
+## 上一轮补充（2026-11-12 阶段4验收完成，阶段5启动）
 
 - 阶段4收尾已提交：`0002bb9 Complete Phase 4 Android companion acceptance`、`609527e Record Phase 4 acceptance evidence and new baseline`；本交接提交推送后 `origin/main` 同步。
 - 阶段4核心实机验收通过（详见下节）；剩余项已列入阶段5启动包。
@@ -15,25 +25,25 @@ Git：`main` 基线为本提交（阶段4收尾+交接）；`origin/main` 已同
 
 当前现场（2026-11-12）：
 - D623+ 由充电头供电运行；PetCard/管理器/ui_hold 正常，`ui_hold` 只挂 `mmi` 和 `mmihandlemsg` 2 个线程；PetCard 刷新约 21.2 ms；AP `adol-2D5025`（5GHz，密码在设备标签，不写入仓库）。
-- 手机 A024（Android 16 / SDK 36，ADB `00018158R001923`）已装 Companion v0.2.0；连热点时 `/state` 与确认动作正常；今日 App 预算显示 ¥0.0017；本机记忆为空；用户原有 DeepSeek Key 保持不动。
+- 手机 A024（Android 16 / SDK 36，ADB `00018158R001923`）已装 Companion debug v0.3.0；连热点时 `/state` 与确认动作正常；今日 App 预算显示 ¥0.0017；本机记忆为空；用户原有 DeepSeek Key 保持不动。release 包已能构建和签名，但尚未迁移安装（证书不同，卸载会丢数据）。
 - 单口 ADB：D623+ 与手机不能同时接电脑。需要设备日志时手机断开、D623+ 接 USB，查完换回充电头；手机接回后再做 App 验证。
 - PetCard 热点无互联网，手机会自动切回有网 Wi‑Fi；系统提示时选“保持连接/不再询问”，必要时手动点 `adol-2D5025`。
 - 软关机期间 PetCard 不轮询 HTTP，Companion 会 timeout；验收 `/state` 前按电源键唤醒。
 
-阶段4已完成（不要重复验收）：v0.2.0 的 `/state`、确认后 `/action`、一次用户授权的真实 DeepSeek 请求（预算 ¥0.00165）、宠物状态上下文、记忆保存/重启/删除/清空、隐私勾选默认关闭、AI 建议不改设备数值；主机单测 23 项全过。
+阶段4已完成（不要重复验收）：v0.2.0 的 `/state`、确认后 `/action`、一次用户授权的真实 DeepSeek 请求（预算 ¥0.00165）、宠物状态上下文、记忆保存/重启/删除/清空、隐私勾选默认关闭、AI 建议不改设备数值；v0.3.0 的 release 签名、release-only FLAG_SECURE、edge-to-edge、预算拒绝真机注入、Key 保存校验、provider 错误码映射单测；主机单测 25 项全过。
 
 阶段5目标（按优先级）：
 1. 供电与场景：USB-C 充电头/移动电源低负载断电与冷启动、上电自启、反复重启；无电池设备的真实关机/唤醒边界；形成可复现的供电方案。
 2. 外壳：128×128 屏、单键、USB-C 口、散热与走线；先做结构验证件再定稿。
 3. 长稳：小时级 `ui_hold` + HTTP + 看门狗；多次重启；`/mnt/userdata` 空间与存储磨损。
-4. 阶段4收尾缺口：Key 保存/删除按钮、预算拒绝路径真机注入、provider 401/402/429/5xx 错误码；release 签名、`FLAG_SECURE`、edge-to-edge。
+4. 阶段4剩余（可选）：Key 删除按钮实测（需用户先同意并重输 Key）、真实 provider 401/402/429/5xx 错误码（真实 401 需临时换 Key；其余无法稳定触发）。release 签名、`FLAG_SECURE`、edge-to-edge、预算拒绝注入已完成。
 5. 产品决策：BLE 是否硬性（未发现硬件）、记忆是否云同步、软关机是否允许手机远程唤醒。
 
 阶段5验收建议：
 - 长稳：连续 ≥2 h，每 30 min 读 `/proc/uptime`、`ps`、`/state`、`/tmp/ui_hold.log`，确认无重启、UI 复现或背光异常。
 - 供电：移动电源低负载断电与冷启动电流实测；至少 3 次断电重启，记录 boot_id 与自启时间。
 - 外壳：装壳后按键手感、屏幕可视、USB-C 插拔、温升。
-- 阶段4剩余：Key 按钮与预算拒绝路径；真实 API 每次仍先取得用户授权，只发最小一次；不得伪造 provider 账单结论。
+- 阶段4剩余：仅 Key 删除实测与真实 provider 错误码；真实 API 每次仍先取得用户授权，只发最小一次；不得伪造 provider 账单结论。
 
 安全边界：不整进程 SIGSTOP `zte_mifi`，不杀 `hostapd`，不启用 NAT/转发或付费流量；显示通过 `/dev/fb0` mmap 写入；不写 MTD/NV/bootloader；`work/` 内固件和转储不提交；真实 AI API 每次调用先取得用户明确授权，只发最小一次；Key 不读取、不输出、不写入文档。
 回滚：设备启动钩子 `/mnt/userdata/petcard/rollback_startup.sh`；启动入口原件在 `/mnt/userdata/petcard/rollback/`；程序回滚用 `bin/petcard.old`（先停 PetCard，再替换并让管理器重拉）。

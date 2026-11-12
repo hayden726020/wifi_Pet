@@ -124,7 +124,7 @@ final class DeepSeekProvider implements AiProvider {
         return prompt.toString();
     }
 
-    private static String describeHttpError(int status, String response) {
+    static String describeHttpError(int status, String response) {
         String detail = "";
         try {
             JSONObject error = new JSONObject(response).optJSONObject("error");

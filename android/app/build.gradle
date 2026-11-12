@@ -2,6 +2,12 @@ plugins {
     id 'com.android.application'
 }
 
+def releaseProps = new Properties()
+def releasePropsFile = rootProject.file('../work/android-signing/signing.properties')
+if (releasePropsFile.exists()) {
+    releasePropsFile.withInputStream { releaseProps.load(it) }
+}
+
 android {
     namespace 'com.petcard.companion'
     compileSdk 36
@@ -10,8 +16,26 @@ android {
         applicationId 'com.petcard.companion'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
+    }
+
+    signingConfigs {
+        release {
+            if (releasePropsFile.exists()) {
+                storeFile rootProject.file(releaseProps.getProperty('storeFile'))
+                storePassword releaseProps.getProperty('storePassword')
+                keyAlias releaseProps.getProperty('keyAlias')
+                keyPassword releaseProps.getProperty('keyPassword')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (releasePropsFile.exists()) signingConfig signingConfigs.release
+        }
     }
 
     compileOptions {
