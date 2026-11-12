@@ -1,12 +1,12 @@
 # 已知问题与风险（PetCard V1）
 
-更新：2026-11-10。按严重度排序；P0/P1 未解决不得交付。
+更新：2026-11-12。按严重度排序；P0/P1 未解决不得交付。
 
 ## P1（高优先级，需持续观察）
 
 1. **原厂 UI 线程挂起依赖线程名与 ptrace**
    - 现象/影响：`ui_hold` 通过 `mmi_lcd_main`、`mmihandlekey`、`mmi`、`mmihandlemsg` 线程名挂起；原厂固件若重新拉起 UI 线程，可能重新绘制并覆盖宠物画面。
-   - 当前缓解：`ui_hold` 每 5 秒重扫并挂起新出现的同名线程；实测 8 个线程、约 11.4 分钟无重启。
+   - 当前缓解：`ui_hold` 启动前 10 秒每 100 ms 重扫、之后每秒重扫并挂起新出现的同名线程；2026-11-12 开机早期只出现 `mmi`、`mmihandlemsg` 两个线程（LCD/按键线程尚未创建），手动启动旧进程时为 8–9 个，均属预期范围。
    - 待办：更长时间（小时级）观察；必要时改成在 `petcard` 内部托管并监控线程变化。
 2. **看门狗**
    - 整进程 `SIGSTOP zte_mifi` 约 10 分钟会重启设备（两次复现）。禁止使用整进程暂停。
@@ -15,8 +15,12 @@
    - 未发现 `/sys/class/bluetooth`、HCI、BT 固件。V1 手机控制只能走 Wi‑Fi 本地 HTTP；若 BLE 是硬性要求，需要硬件/需求重新评估。
 4. **本地 HTTP 无认证**
    - 任何连上原厂热点且知道 Wi‑Fi 密码的客户端都能调用 `/state` 和 `/action`。V1 是个人设备、本地网；后续手机 App 可加 token/配对。
-5. **长期安装未完成**
-   - 程序在 `/tmp`（tmpfs），重启丢失；阶段 5 需安装到 `/mnt/userdata`、做开机自启与崩溃恢复，并评估 jffs2 执行/内存。
+5. **常驻安装已落盘，关机/断电与长期稳定性未验**
+   - 程序、`ui_hold`、管理器和素材已安装到 `/mnt/userdata/petcard`，普通重启后由 `/etc/rc` 钩子自动拉起；旧文件保留 `.old` 可回滚。
+   - 待办：实机关机确认页/关机页与“按住 5 秒→松开→短按”流程验证；关机后自动开机根因未确认；断电重启和小时级稳定性需观察；`/mnt/userdata` 仅约 1.2 MB 可用。
+   - 已缓解：关机等待期间每 2 秒唤醒面板；`/sbin/poweroff` 返回 0 但 30 秒内未断电时记录 `timeout`、清理标记并恢复宠物界面，避免永久卡在关机页。
+   - 2026-11-12 起默认改为**软关机**：关机页后 `sleepin`/`blgoff` 熄屏，不调用 `/sbin/poweroff`，设备不重启；按电源键唤醒。`--hard-poweroff` 保留真实断电路径。debugfs 实测 `sleepin`/`blgoff` 后 `sleep mode=sleep`、`backlight=off`，`sleepout`/`blgon` 恢复 `normal/on`。
+   - 实机证据：真实 poweroff 请求后约 7 秒 boot_id 变化，无 `command-exited`；USB 供电下真实断电无法保持关机。软关机的实机熄屏/唤醒仍待用户验证。
 
 ## P2（中优先级）
 
@@ -34,10 +38,14 @@
     - 手机连原厂 AP 时 Android 可能提示“无互联网”，需要保持 Wi‑Fi；后续 App 应绑定 Wi‑Fi 网络走本地、蜂窝走云端。
 12. **字体/界面**
     - 设备端只有 3×5 ASCII 字体；中文只在手机网页/未来 App 展示。情绪/动作目前是程序化绘制，不是逐帧精灵图。
+13. **原厂 Power On 无法在应用层移除**
+    - 2026-11-12 fb 时间线：uptime 3.20–4.05 s fb 全黑，4.56 s 起为 PetCard 宠物页，3.2 s 后无原厂帧；`/etc_ro/mmi` 启动素材 bind 挂载正常。
+    - 结论：原厂画面在 Linux 用户态之前显示或由面板保留到 PetCard 首次写屏；`prepare_boot.sh` 已在 userdata 可用的最早时刻（约 3.73 s）写入 PetCard 启动帧，只能缩短可见时间，不能从根上移除。bootloader/内核 logo 修改超出当前“不写 MTD/NV/bootloader”边界。
 
 ## P3（低优先级）
 
-13. `/tmp` 空间/内存：静态 petcard 约 588 KB、ui_hold 约 502 KB；PetCore VmRSS 约 396 KB。同时保留多份大二进制会挤占 RAM。
+13. 存储/内存：`/mnt/userdata` 可用约 1.2 MB；静态 petcard 约 604 KB、ui_hold 约 506 KB，另保留 `.old` 备份。PetCore VmRSS 约 396 KB。不要同时保留多份大二进制。
 14. 面板 `update` 是驱动彩条测试图，禁止用于刷新；文档已标注。
 15. 私有固件/镜像/转储在 `work/`（gitignore），不得提交/上传。
 16. 电池焊盘未修；USB‑C 外接供电和移动电源低负载断电仍需实测。
+17. `adb reboot` 在这台设备上返回 0 但不重启；普通重启需 `adb shell 'sync; /sbin/reboot'`。

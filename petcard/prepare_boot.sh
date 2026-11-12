@@ -63,6 +63,13 @@ for name in adol.png background.png background-poweroff.png first_background.png
     MOUNTED="$name $MOUNTED"
 done
 
+# Paint a PetCard boot frame as early as userdata is available. This cannot
+# remove the pre-Linux OEM splash, but it replaces it before PetCard starts.
+if [ -x "$BASE/bin/petcard" ] && [ -s "$BASE/boot-frame.raw" ]; then
+    "$BASE/bin/petcard" --restore "$BASE/boot-frame.raw" >> "$LOG" 2>&1
+    echo "PetCard early frame $(cat /proc/uptime)" >> "$LOG"
+fi
+
 # Complete web asset checks before starting zte_mifi so the display takeover
 # does not wait on userdata reads after the OEM MMI begins drawing.
 if prepare_web_runtime; then

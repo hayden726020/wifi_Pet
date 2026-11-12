@@ -103,6 +103,10 @@ static void reset_for_test(void)
     g_shutdown_trigger_held = 0;
     g_poweroff_requested = 0;
     g_poweroff_started = 0;
+    g_soft_off = 0;
+    g_soft_wake = 0;
+    g_hard_poweroff = 0;
+    g_soft_ignore_until = 0;
     g_shutdown_confirm_deadline = 0;
 }
 
@@ -133,8 +137,28 @@ int main(int argc, char **argv)
     g_poweroff_requested = 1;
     render_frame(g_sim_now);
     dump_raw(dir, "shutdown");
+    uint16_t shutdown_frame[W * H];
+    memcpy(shutdown_frame, g_canvas, sizeof(shutdown_frame));
     check(memcmp(confirm_frame, g_canvas, sizeof(confirm_frame)) != 0,
           "shutdown confirmation and shutdown screens render differently");
+    g_poweroff_requested = 0;
+    g_soft_off = 1;
+    render_frame(g_sim_now);
+    check(memcmp(shutdown_frame, g_canvas, sizeof(shutdown_frame)) == 0,
+          "soft-off renders the shutdown frame");
+    g_soft_off = 0;
+
+    reset_for_test();
+    g_soft_off = 1;
+    g_soft_ignore_until = g_sim_now + 500;
+    on_key_event(1);
+    check(g_soft_wake == 0, "soft-off ignores buffered key during settle");
+    g_sim_now += 500;
+    on_key_event(1);
+    check(g_soft_wake == 1, "soft-off power key requests wake");
+    g_soft_off = 0;
+    g_soft_wake = 0;
+    g_soft_ignore_until = 0;
 
     test_sprite_assets();
 

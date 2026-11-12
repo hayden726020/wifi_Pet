@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <signal.h>
+#include <time.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -24,6 +25,13 @@
 static volatile sig_atomic_t g_stop = 0;
 static pid_t g_held[64];
 static int g_nheld = 0;
+
+static long long monotonic_ms(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+}
 
 static void on_signal(int sig)
 {
@@ -101,7 +109,7 @@ static int scan_hold(int pid)
         waitpid(tid, &st, __WALL);
         if (g_nheld < (int)(sizeof(g_held) / sizeof(g_held[0]))) {
             g_held[g_nheld++] = tid;
-            printf("HOLD tid=%d %s\n", (int)tid, comm);
+            printf("HOLD tid=%d %s uptime_ms=%lld\n", (int)tid, comm, monotonic_ms());
             fflush(stdout);
         }
     }
@@ -147,6 +155,7 @@ int main(int argc, char **argv)
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGHUP, &sa, NULL);
 
+    long long fast_scan_until = monotonic_ms() + 10000;
     scan_hold(pid);
     if (g_nheld == 0) {
         fprintf(stderr, "no UI threads held\n");
@@ -156,7 +165,11 @@ int main(int argc, char **argv)
     fflush(stdout);
 
     while (!g_stop) {
-        sleep(5);
+        /* MMI creates/names its display threads after the first UI thread.
+         * Keep discovering them during startup instead of leaving a 5s gap. */
+        if (monotonic_ms() < fast_scan_until) usleep(100000);
+        else sleep(1);
+        if (g_stop) break;
         int st;
         while (waitpid(-1, &st, __WALL | WNOHANG) > 0) { }
         if (scan_hold(pid) != 0) break;

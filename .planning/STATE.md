@@ -1,5 +1,31 @@
 # STATE
 
+## 当前状态（2026-11-12，新版本已部署并完成普通重启验证）
+
+- 新版本已从工作区安装到设备 `/mnt/userdata/petcard`：`bin/petcard`、`bin/ui_hold`、`autostart.sh`；旧文件保留为 `.old`，可回滚。未改 `/etc/rc`，未写 MTD/NV/bootloader。
+- 首次部署时 MD5 一致（本地构建产物 = 设备激活文件）：petcard `115c31b0dba699efdf34ded3b4eea7e9`、ui_hold `cfdf8a8edf9b1c93b53d64b6852d04a2`、autostart.sh `fa50f4df3d64e1a46908583c3b78c64f`；`bin/petcard.old` 为首次部署版 `6251f17…`。
+- 主机回归全通过：模拟器 39 项、关机 20 项、管理器替身 2 项、ui_hold ptrace 3 项（共 64 项）。工作区文档与源码仍未提交。
+- 独立复核后补了两个 P1：关机等待期间每 2 秒 `lcd_wake` 保持关机画面；`/sbin/poweroff` 返回 0 但平台未断电时，30 秒超时记录 `timeout`、清理标记并恢复宠物界面。新增超时/边界断言；`test_shutdown.sh` 要求输出 `RESULT PASS`，防止 `execl` 回归导致测试进程被替换而虚假通过。补丁后只替换 `bin/petcard`，管理器未重启。
+- 普通重启验证：`adb reboot` 被设备忽略（返回 0 但不重启），改用 `adb shell 'sync; /sbin/reboot'`。新 boot_id `7284efd0-b87e-4a76-a2a0-f205a57662c4`；管理器 uptime 3.70 s 启动并记录 boot_id，PetCard 首帧 ready，`ui_hold` 报告 `HOLDING 2 threads`（`mmi`、`mmihandlemsg`；因在 MMI 创建 LCD/按键线程前停住 `mmi`）。
+- 开机后 HTTP `/state`、主页、`/assets/happy_1.png` 均正常；fb 回读为 PetCard 页面。root JFFS2 只读，hostapd/DHCP/DNS 正常，`poweroff.log` 尚无记录。
+- 补丁版再次普通重启后，ADB 在 uptime 约 65 秒时掉线且未重新枚举；同一时间 RNDIS `192.168.0.1` 可 ping，PetCard `/state`、主页、PNG 均 200，证明系统与 PetCard 已启动。恢复 ADB 需拔插 USB-C。
+- 用户已确认：启动仍能看到原厂 Power On；关机后设备会回到 PetCard 开机页。
+- 启动画面 fb 时间线（uptime 3.20–14.69 s）：3.20–4.05 s fb 全黑，4.56 s 起为 PetCard 宠物页；3.2 s 之后没有任何原厂帧。`/etc_ro/mmi` 26 个 bind 挂载正常，`image_poweron_0.png` 与 PetCard 资源 MD5 相同。结论：原厂 Power On 在 Linux 用户态之前显示或由面板保留到 PetCard 首次写屏；应用层只能提前写 PetCard 帧来缩短，不能从根上移除。
+- 关机证据：`poweroff.log` 记录 `POWEROFF requested pid=671 uptime=948.10 status=0`，约 7 秒后 boot_id 从 `64e554ea…` 变为 `a547867d…`，无 `command-exited`；说明是整机重启或断电后被 USB 供电立即唤醒，不是保持关机。
+- 诊断用 fb 时间线抓取已移除；证据在 gitignore 的 `work/boot-timeline/`。
+- 用户已选择软关机 + 提前写 PetCard 启动帧，并已实现部署：默认关机显示 GOOD NIGHT 后 `sleepin`/`blgoff` 熄屏，不调用 `/sbin/poweroff`、不建关机标记，PetCard/管理器保持运行，按电源键唤醒；`--hard-poweroff` 保留真实断电路径。debugfs 实测 `sleepin`/`blgoff` 后 `sleep mode=sleep、backlight=off`，`sleepout`/`blgon` 恢复 `normal/on`。`prepare_boot.sh` 在挂载素材后用 `petcard --restore boot-frame.raw` 写 128×128 RGB565 启动图，设备日志记录 `PetCard early frame 3.73`；`prepare_boot.sh` 当前 MD5 `5ee065f…`。
+- 当前激活 MD5：petcard `11e0f661…`、ui_hold `cfdf8a8…`、autostart.sh `fa50f4d…`、prepare_boot.sh `5ee065f…`、boot-frame.raw `829aa02…`；`bin/petcard.old` 为 `1ed912b8…`。主机回归：模拟器 39 项、关机 20 项、管理器 2 项、ui_hold 3 项，共 64 项通过。
+- 待用户实机确认：关机页后是否熄屏且不重启、电源键是否唤醒；启动时 PetCard 启动帧是否出现、原厂 Power On 是否缩短。
+- 手动激活（不重启）时曾因 ADB shell 退出挂断导致 PetCard 被重拉一次；开机路径未复现。
+
+## 历史排查（2026-11-12，修复完成待部署时的记录）
+
+- 用户再次报告关机后 PetCard → 原厂 Power On → PetCard。画面顺序本身不能证明发生了两次系统启动。
+- 已恢复 ADB：Windows 能识别 WINUSB 调试接口，但 ADB 列表为空；重启电脑端 ADB 服务后恢复。当前采样 boot_id=`c4c78590-20bb-4f50-8d96-61d00e912a73`，`boot_reason=0`，USB online=1、BAT_EXIST=0，根 JFFS2 只读；这些信息仍不能确认自动复位原因。
+- 已复现软件缺陷：PetCard 用 exec 替换自身请求关机，自启管理器没有关机抑制；另有 ui_hold 首次挂住部分 UI 后每 5 秒才发现新线程的空窗。两者不能直接等同于实机全部症状的根因。
+- 本地修复已完成：保留关机父进程和画面、临时关机标记阻止重拉起、明确失败时恢复、持久关机日志；UI 初期扫描改为 100ms。主机关机测试 14 项、管理器替身测试 2 项、原模拟器 36 项通过；真实主机 ptrace 测试新版约 104ms 接管迟建 UI，非 UI 线程继续运行；ARM 构建成功，独立代码及安全复核通过。未部署本轮修复，未触发设备关机/重启，未写 MTD/NV/bootloader。
+
+
 ## 最新状态（2026-11-12 阶段 3 开关机画面问题排查）
 
 - 用户需求：开机进入 PetCard；尽可能移除原厂界面；保留联网、看门狗和 USB/ADB 救援；启动/关机画面采用 PetCard 专属视觉。设备 monolithic `zte_mifi` 同时承载 MMI 与关键联网/看门狗线程，因此采用只挂起 MMI/按键 UI 线程并保留主进程的方式；原厂 UI 程序仍在固件中，不是从固件删除。

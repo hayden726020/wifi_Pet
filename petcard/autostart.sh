@@ -5,8 +5,13 @@ WEB=/tmp/petcard-www
 LOG=$BASE/autostart.log
 HOLDER_BIN=$BASE/bin/ui_hold
 PETCARD_BIN=$BASE/bin/petcard
+SHUTDOWN=/tmp/petcard-shutdown
 EARLY_ATTEMPTS=0
 trap '' HUP
+
+BOOT_ID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null) || BOOT_ID=unknown
+UPTIME=$(cat /proc/uptime 2>/dev/null) || UPTIME=unknown
+echo "PetCard manager start boot_id=$BOOT_ID uptime=$UPTIME $(date)" >> "$LOG"
 
 prepare_web_runtime() {
     [ -f "$BASE/www/index.html" ] || return 1
@@ -31,6 +36,13 @@ prepare_web_runtime() {
 }
 
 while :; do
+    # Deliberately retained for the rest of this boot once poweroff succeeds.
+    # A failed request removes it; /tmp clears it on a real reboot. Do not
+    # infer failure from a dead PetCard PID: init may already be stopping it.
+    if [ -e "$SHUTDOWN" ]; then
+        sleep 0.2
+        continue
+    fi
     if [ ! -x "$HOLDER_BIN" ] || [ ! -x "$PETCARD_BIN" ]; then
         echo "PetCard binaries missing $(date)" >> "$LOG"
         sleep 1
@@ -41,7 +53,7 @@ while :; do
     # exist. The manager itself is launched before zte_mifi; UI holding still
     # waits until zte_mifi and its MMI threads appear.
     if { [ -z "$CHILD" ] || ! kill -0 "$CHILD" 2>/dev/null; } && [ "$EARLY_ATTEMPTS" -lt 3 ]; then
-        if [ -c /dev/fb0 ] && [ -c /dev/event0 ] && [ -f "$WEB/.runtime-ready" ]; then
+        if [ -c /dev/fb0 ] && [ -c /dev/event0 ] && [ -f "$WEB/.runtime-ready" ] && [ ! -e "$SHUTDOWN" ]; then
             rm -f /tmp/petcard.log /tmp/petcard-early-ready
             "$PETCARD_BIN" --debug > /tmp/petcard.log 2>&1 &
             CHILD=$!
@@ -76,6 +88,7 @@ while :; do
         continue
     fi
 
+    [ -e "$SHUTDOWN" ] && continue
     if [ -z "$HOLDER" ] || ! kill -0 "$HOLDER" 2>/dev/null; then
         rm -f /tmp/ui_hold.log
         "$HOLDER_BIN" "$PID" > /tmp/ui_hold.log 2>&1 &
@@ -114,6 +127,7 @@ while :; do
     fi
 
     if [ -z "$CHILD" ] || ! kill -0 "$CHILD" 2>/dev/null; then
+        [ -e "$SHUTDOWN" ] && continue
         "$PETCARD_BIN" --debug > /tmp/petcard.log 2>&1 &
         CHILD=$!
         echo "PetCard launched pid=$CHILD $(date)" >> "$LOG"

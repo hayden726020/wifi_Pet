@@ -30,7 +30,11 @@ python prepare_sprites.py
 
 ### 开机接管（阶段 3）
 
-`install_startup.sh` 用来让 PetCard 随设备启动：`/etc/rc` 在 `fs_check` 和设备节点创建后，先把 PetCard 启动/关机动画绑定到原厂 MMI 动画路径并预检 userdata 网页素材，再启动 `autostart.sh`。启动脚本等待 PetCard 首个完整 framebuffer 帧写成功后，才继续执行 `zte_mifi`；管理器随后挂起 MMI/按键 UI 线程。若 PetCard 未在 2 秒内就绪，系统继续原启动流程，管理器会在挂起 MMI 后回退启动 PetCard。原厂网络、看门狗和 USB/ADB 服务仍由 `/etc/rc` 启动。原厂 MMI 程序仍在固件中运行，不是固件删除或完整替换。虽然设备日志确认 PetCard 首帧先于 `zte_mifi` 且 MMI 动画资源被 PetCard 覆盖，用户仍报告约 5–7 秒原厂 Power On，因此可见启动画面的来源尚未定位。当前工作流不写 MTD/NV/bootloader。
+`install_startup.sh` 用来让 PetCard 随设备启动：`/etc/rc` 在 `fs_check` 和设备节点创建后，先把 PetCard 启动/关机动画绑定到原厂 MMI 动画路径并预检 userdata 网页素材，再启动 `autostart.sh`。启动脚本等待 PetCard 首个完整 framebuffer 帧写成功后，才继续执行 `zte_mifi`；管理器随后挂起 MMI/按键 UI 线程。若 PetCard 未在 2 秒内就绪，系统继续原启动流程，管理器会在挂起 MMI 后回退启动 PetCard。原厂网络、看门狗和 USB/ADB 服务仍由 `/etc/rc` 启动。原厂 MMI 程序仍在固件中运行，不是固件删除或完整替换。
+
+`prepare_boot.sh` 还会在挂载素材后尽早执行 `petcard --restore "$BASE/boot-frame.raw"`，在 userdata 可用时用 PetCard 启动图替换面板画面，缩短原厂 Power On 的可见时间。`boot-frame.raw` 是 128×128 RGB565 高字节优先的 32768 B 帧，由 `assets/boot/image_poweron_0.png` 生成；安装到 userdata 时需一并推送。该步骤不能移除 Linux 用户态之前由 bootloader/内核或面板保留的原厂画面。
+
+虽然设备日志确认 PetCard 首帧先于 `zte_mifi` 且 MMI 动画资源被 PetCard 覆盖，用户仍报告启动时看到原厂 Power On。fb 时间线显示 3.2 s 后没有原厂帧进入 Linux framebuffer，当前判断该画面来自更早启动阶段或面板保留；当前工作流不写 MTD/NV/bootloader。
 
 ```sh
 /mnt/userdata/petcard/install_startup.sh
@@ -94,6 +98,23 @@ adb shell '/tmp/petcard.sh --debug'
 - 确认页上再次长按或等待 15 秒：取消关机并回到宠物页面。
 - 关机确认页的单击不会执行喂食/玩耍/睡觉等宠物操作。
 
+关机请求默认进入**软关机**：保存状态、显示 GOOD NIGHT 页面、写入 fb 后执行 `sleepin`/`blgoff` 熄屏；不调用 `/sbin/poweroff`，不创建管理器抑制标记，PetCard 和管理器保持运行，按电源键唤醒并恢复宠物界面。`--hard-poweroff` 可切回真实断电路径：保留关机父进程和画面，`/tmp/petcard-shutdown` 抑制管理器重新拉起；等待期间每 2 秒唤醒面板，30 秒内仍未断电则记录 `timeout`、清理标记并恢复宠物界面。真实路径的退出不恢复旧 framebuffer，持久诊断记录位于 `/mnt/userdata/petcard/poweroff.log`。软关机不会改变系统电源状态；设备无电池、USB-C 供电时真实断电可能立即被供电唤醒。
+
+`ui_hold` 启动前 10 秒每 100ms 检查新增 UI 线程，之后每秒检查。主机测试已验证迟建显示线程及时接管、非 UI 线程继续运行；原厂 Power On 是否完全消失仍需实机验证。
+
+在 WSL/Linux 中运行关机和线程接管回归（只使用无害替代命令和合成进程，不操作设备）：
+
+```sh
+cd petcard
+sh test_shutdown.sh
+sh test_autostart_shutdown.sh
+cc -O2 -o /tmp/petcard_ui_hold_host ui_hold.c
+cc -std=c11 -O2 -pthread -o /tmp/petcard_ui_hold_test test_ui_hold.c
+/tmp/petcard_ui_hold_test /tmp/petcard_ui_hold_host
+```
+
+`test_shutdown.sh` 不只检查退出码，还要求输出 `RESULT PASS`；若关机实现退回 `execl` 替换测试进程，输出缺失会直接判失败。当前关机回归 20 项。
+
 ## 手机本地控制页
 
 手机连接原厂热点（`adol-2D5025`，密码使用原厂默认值）后访问：
@@ -128,7 +149,8 @@ HTTP 接口（JSON）：
 
 - `petcard --debug`：打印启动状态、HTTP 动作、每 30 帧的整帧写入耗时。
 - `petcard --freeze-frame`：固定人物动画帧，供屏幕诊断。
-- `petcard`：默认按 RGB565 高字节优先输出，实物屏确认该格式可清除色块。
+- `petcard`：默认按 RGB565 高字节优先输出，实物屏确认该格式可清除色块；关机默认软关机。
+- `petcard --hard-poweroff`：关机时改用真实 `/sbin/poweroff` 路径（调试/对比用）。
 - `petcard --panel-bgr565`：回退到原 B-R-G 映射。
 - `petcard --status`：读取存档并输出 JSON，不打开屏幕/按键。
 - `petcard --reset`：删除存档。

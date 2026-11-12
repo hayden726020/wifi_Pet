@@ -20,6 +20,7 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -210,7 +211,15 @@ static int g_shutdown_confirm = 0;
 static int g_shutdown_trigger_held = 0;
 static int g_poweroff_requested = 0;
 static int g_poweroff_started = 0;
+static pid_t g_poweroff_child = -1;
+static long long g_poweroff_started_at = 0;
+static int g_soft_off = 0;
+static int g_soft_wake = 0;
+static int g_hard_poweroff = 0;
+static long long g_soft_ignore_until = 0;
 static long long g_shutdown_confirm_deadline = 0;
+
+#define POWEROFF_WAIT_MS 30000
 
 static long long g_next_blink = 0;
 static long long g_blink_until = 0;
@@ -1080,7 +1089,7 @@ static void render_frame(long long now)
 {
     fill_rect(0, 0, W, H, C_BG);
 
-    if (g_poweroff_requested) {
+    if (g_poweroff_requested || g_soft_off) {
         draw_text_center(14, "GOOD NIGHT", 2, C_YELLOW);
         draw_pet(EMO_SLEEP, now);
         draw_text_center(112, "PETCARD", 1, C_DIM);
@@ -1155,6 +1164,12 @@ static void lcd_wake(void)
 {
     lcd_cmd("sleepout");
     lcd_cmd("blgon");
+}
+
+static void lcd_sleep(void)
+{
+    lcd_cmd("sleepin");
+    lcd_cmd("blgoff");
 }
 
 static int fb_open(int save)
@@ -1233,7 +1248,7 @@ static int flush_fb(void)
 
 static void fb_restore_and_close(void)
 {
-    if (g_fb_fd >= 0 && g_have_snapshot) {
+    if (g_fb_fd >= 0 && g_have_snapshot && !g_poweroff_started) {
         lcd_wake();
         if (g_fb_map)
             memcpy(g_fb_map, g_snapshot, FB_BYTES);
@@ -1573,6 +1588,11 @@ static void http_poll(void)
 static void on_key_event(int value)
 {
     long long now = now_ms();
+    if (g_soft_off) {
+        if (now < g_soft_ignore_until) return;
+        if (value == 1) g_soft_wake = 1;
+        return;
+    }
     if (g_poweroff_requested) return;
 
     if (value == 1) {
@@ -1691,6 +1711,145 @@ static void drain_events(void)
 
 /* ---------------- main loop ---------------- */
 
+static void log_poweroff(const char *event, int status)
+{
+    int saved_errno = errno;
+    char uptime[64] = "unknown";
+    FILE *f = fopen("/proc/uptime", "r");
+    if (f) {
+        if (fscanf(f, "%63s", uptime) != 1) strcpy(uptime, "unknown");
+        fclose(f);
+    }
+    fprintf(stderr, "POWEROFF %s pid=%ld uptime=%s status=%d\n",
+            event, (long)getpid(), uptime, status);
+#ifndef PET_SIM
+    f = fopen(SAVE_DIR "/poweroff.log", "a");
+    if (f) {
+        fprintf(f, "POWEROFF %s pid=%ld uptime=%s status=%d\n",
+                event, (long)getpid(), uptime, status);
+        if (fflush(f) != 0 || fsync(fileno(f)) != 0)
+            perror("persist poweroff log");
+        fclose(f);
+    } else {
+        perror("open poweroff log");
+    }
+#endif
+    errno = saved_errno;
+}
+
+static void poweroff_failed(const char *marker, int owns_marker)
+{
+    /* Keep the shutdown guard if cleanup fails; never restart into an
+     * uncertain shutdown. /tmp clears the guard on the next real boot. */
+    if (owns_marker && unlink(marker) < 0 && errno != ENOENT) {
+        perror("remove shutdown marker");
+        return;
+    }
+    g_poweroff_started = 0;
+    g_poweroff_requested = 0;
+    g_poweroff_started_at = 0;
+    set_msg("POWER OFF FAILED", 3000);
+    g_force_render = 1;
+}
+
+static void poll_system_poweroff(const char *marker);
+
+static void poweroff_recover(const char *marker)
+{
+    /* A command that exits 0 only accepts the request; it does not prove
+     * init will cut power. Recover if nothing happens, otherwise a device
+     * on external USB power can stay stuck on the shutdown frame. */
+    if (g_poweroff_child > 0) {
+        kill(g_poweroff_child, SIGKILL);
+        waitpid(g_poweroff_child, NULL, 0);
+        g_poweroff_child = -1;
+    }
+    if (unlink(marker) < 0 && errno != ENOENT) {
+        perror("remove shutdown marker after timeout");
+        log_poweroff("timeout-marker-failed", errno);
+    }
+    g_poweroff_started = 0;
+    g_poweroff_requested = 0;
+    g_poweroff_started_at = 0;
+    set_msg("POWER OFF TIMEOUT", 3000);
+    g_force_render = 1;
+}
+
+static void poll_system_poweroff_step(const char *marker, long long now)
+{
+    poll_system_poweroff(marker);
+    if (!g_poweroff_started) return;
+    if (g_poweroff_started_at > 0 &&
+        now >= g_poweroff_started_at + POWEROFF_WAIT_MS) {
+        log_poweroff("timeout", 0);
+        poweroff_recover(marker);
+    }
+}
+
+static int request_system_poweroff(const char *command, const char *marker)
+{
+    int fd = open(marker, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd < 0) {
+        log_poweroff("marker-failed", errno);
+        perror("create shutdown marker");
+        poweroff_failed(marker, 0);
+        return -1;
+    }
+    close(fd);
+    g_poweroff_started = 1;
+    g_poweroff_started_at = now_ms();
+    log_poweroff("requested", 0);
+    /* The parent keeps the shutdown frame and remains alive while init
+     * processes the request. The manager must also honor the marker if
+     * init terminates PetCard before the machine powers down. */
+    g_poweroff_child = fork();
+    if (g_poweroff_child == 0) {
+        execl(command, "poweroff", (char *)NULL);
+        perror("exec poweroff");
+        _exit(127);
+    }
+    if (g_poweroff_child > 0) return 0;
+    perror("fork poweroff");
+    log_poweroff("fork-failed", errno);
+    poweroff_failed(marker, 1);
+    return -1;
+}
+
+static void begin_shutdown_action(const char *command, const char *marker)
+{
+    if (g_hard_poweroff) {
+        request_system_poweroff(command, marker);
+        return;
+    }
+    g_poweroff_requested = 0;
+    g_soft_off = 1;
+    g_soft_wake = 0;
+    g_soft_ignore_until = now_ms() + 500;
+    g_force_render = 1;
+}
+
+static void poll_system_poweroff(const char *marker)
+{
+    if (g_poweroff_child <= 0) return;
+    int status = 0;
+    pid_t result = waitpid(g_poweroff_child, &status, WNOHANG);
+    if (result == 0 || (result < 0 && errno == EINTR)) return;
+    g_poweroff_child = -1;
+    if (result < 0) {
+        /* No exit status means shutdown may have been accepted. */
+        perror("wait poweroff");
+        log_poweroff("wait-failed", errno);
+        return;
+    }
+    log_poweroff("command-exited", status);
+    /* Init may terminate the helper after it sent the request. A signal
+     * cannot prove rejection, so retain the guard in that uncertain case. */
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+        poweroff_failed(marker, 1);
+    /* Exit 0 acknowledges the request, not completion. Keep the frame and
+     * marker until init shuts us down; never retry or respawn on a timer. */
+}
+
 #ifndef PET_SIM
 static int frame_interval(long long now)
 {
@@ -1716,6 +1875,47 @@ static void install_signals(void)
     sigaction(SIGALRM, &sa, NULL);
 }
 
+static void enter_soft_off_hw(void)
+{
+    g_dirty = 1;
+    render_frame(now_ms());
+    flush_fb();
+    log_poweroff("soft-off", 0);
+    lcd_sleep();
+}
+
+static void soft_off_tick(void)
+{
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    int maxfd = -1;
+    if (g_ev_fd >= 0) {
+        FD_SET(g_ev_fd, &rfds);
+        maxfd = g_ev_fd;
+    }
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 200000;
+    int r = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+    if (r > 0 && g_ev_fd >= 0 && FD_ISSET(g_ev_fd, &rfds))
+        drain_events();
+    if (!g_soft_wake) return;
+    g_soft_off = 0;
+    g_soft_wake = 0;
+    g_soft_ignore_until = 0;
+    g_key_down = 0;
+    g_press_at = 0;
+    g_single_pending = 0;
+    g_double_candidate = 0;
+    g_shutdown_confirm = 0;
+    g_shutdown_trigger_held = 0;
+    lcd_wake();
+    set_msg("HELLO!", 2000);
+    g_dirty = 1;
+    g_force_render = 1;
+    log_poweroff("soft-wake", 0);
+}
+
 static void run_loop(void)
 {
     long long next_frame = now_ms();
@@ -1723,6 +1923,22 @@ static void run_loop(void)
     long long next_wake = now_ms() + 2000;
 
     while (!g_quit) {
+        if (g_soft_off) {
+            soft_off_tick();
+            continue;
+        }
+        if (g_poweroff_started) {
+            long long now = now_ms();
+            poll_system_poweroff_step("/tmp/petcard-shutdown", now);
+            if (g_poweroff_started) {
+                if (now >= next_wake) {
+                    lcd_wake();
+                    next_wake = now + 2000;
+                }
+                usleep(100000);
+                continue;
+            }
+        }
         long long now = now_ms();
         tick_button(now);
 
@@ -1760,14 +1976,12 @@ static void run_loop(void)
             flush_fb();
 
         if (g_poweroff_requested && !g_poweroff_started) {
-            g_poweroff_started = 1;
             save_state();
             usleep(1500000);
-            execl("/sbin/poweroff", "poweroff", (char *)NULL);
-            g_poweroff_started = 0;
-            g_poweroff_requested = 0;
-            set_msg("POWER OFF FAILED", 3000);
-            g_force_render = 1;
+            begin_shutdown_action("/sbin/poweroff", "/tmp/petcard-shutdown");
+            if (g_soft_off)
+                enter_soft_off_hw();
+            continue;
         }
 
         if (g_state_dirty && now - g_last_save >= 120000)
@@ -1819,7 +2033,7 @@ static int run_reset(void)
 
 static void usage(const char *argv0)
 {
-    printf("usage: %s [--debug] [--freeze-frame] [--panel-rgb565-be|--panel-bgr565] [--minutes N] [--nohttp] [--status] [--reset]\n"
+    printf("usage: %s [--debug] [--freeze-frame] [--panel-rgb565-be|--panel-bgr565] [--hard-poweroff] [--minutes N] [--nohttp] [--status] [--reset]\n"
            "       %s --restore FILE\n", argv0, argv0);
 }
 
@@ -1837,6 +2051,7 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--freeze-frame") == 0) g_freeze_sprite_frame = 1;
         else if (strcmp(argv[i], "--panel-rgb565-be") == 0) g_panel_rgb565_be = 1;
         else if (strcmp(argv[i], "--panel-bgr565") == 0) g_panel_rgb565_be = 0;
+        else if (strcmp(argv[i], "--hard-poweroff") == 0) g_hard_poweroff = 1;
         else if (strcmp(argv[i], "--nohttp") == 0) g_nohttp = 1;
         else if (strcmp(argv[i], "--status") == 0) return run_status();
         else if (strcmp(argv[i], "--reset") == 0) return run_reset();
