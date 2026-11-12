@@ -20,7 +20,7 @@
 
 ```text
 项目：`D:\Pet_wifi`（Adol D623+ / ZX297520V3，PetCard V1）。
-Git：`main` 基线为本提交（阶段4收尾+交接）；`origin/main` 已同步；SHA 以 `git log -1` 为准。
+Git：`main` 基线 `fa965b5`（阶段4发布硬化收尾）；`origin/main` 已同步；具体以 `git log -1` 为准。
 先读：`HANDOFF.md` 顶部、`.planning/STATE.md` 顶部、`.planning/ROADMAP.md` 的“后续阶段 / 阶段5”、`docs/function-matrix.md`、`docs/known-issues.md`；然后 `git status`。
 
 当前现场（2026-11-12）：

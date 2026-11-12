@@ -127,5 +127,5 @@
 
 ## 交接
 
-- Git：`main` 代码基线 `7cc0dfc`（以实际 HEAD 为准）；远端 `origin https://github.com/hayden726020/wifi_Pet.git`。
+- Git：`main` 代码基线 `fa965b5`；远端 `origin https://github.com/hayden726020/wifi_Pet.git`。
 - 下一对话：读 `HANDOFF.md` 顶部“交接快照”和文末“新对话启动包”；设备当前为原厂 UI、AP 正常、PetCore 已停止。
